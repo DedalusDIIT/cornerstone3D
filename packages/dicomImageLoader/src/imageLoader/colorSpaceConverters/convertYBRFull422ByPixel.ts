@@ -1,10 +1,10 @@
 import { ByteArray } from 'dicom-parser';
 
-export default function (
+export default async function (
   imageFrame: ByteArray,
   colorBuffer: ByteArray,
   useRGBA: boolean
-): void {
+): Promise<void> {
   if (imageFrame === undefined) {
     throw new Error('convertYBRFull422ByPixel: ybrBuffer must be defined');
   }

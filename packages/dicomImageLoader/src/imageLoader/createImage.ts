@@ -170,7 +170,7 @@ function createImage(
 
   return new Promise<DICOMLoaderIImage | ImageFrame>((resolve, reject) => {
     // eslint-disable-next-line complexity
-    decodePromise.then(function (imageFrame: ImageFrame) {
+    decodePromise.then(async function (imageFrame: ImageFrame) {
       // if it is desired to skip creating image, return the imageFrame
       // after the decode. This might be useful for some applications
       // that only need the decoded pixel data and not the image object
@@ -262,7 +262,7 @@ function createImage(
             imageFrame.rows
           );
 
-          convertColorSpace(imageFrame, imageData.data, useRGBA);
+          await convertColorSpace(imageFrame, imageData.data, useRGBA);
           imageFrame.imageData = imageData;
           imageFrame.pixelData = imageData.data;
           imageFrame.pixelDataLength = imageData.data.length;
@@ -293,7 +293,7 @@ function createImage(
 
         /** @todo check as any */
         // calculate smallest and largest PixelValue of the converted pixelData
-        const minMax = getMinMax(imageFrame.pixelData as any);
+        const minMax = getMinMax(imageFrame.pixelData);
 
         imageFrame.smallestPixelValue = minMax.min;
         imageFrame.largestPixelValue = minMax.max;

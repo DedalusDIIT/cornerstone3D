@@ -42,11 +42,11 @@ function fetchPaletteData(imageFrame, color, fallback) {
  * @param colorBuffer - The buffer to write the converted pixel data to
  * @returns
  */
-export default function (
+export default async function (
   imageFrame: ImageFrame,
   colorBuffer: ByteArray,
   useRGBA: boolean
-): void {
+): Promise<void> {
   const numPixels = imageFrame.columns * imageFrame.rows;
   const pixelData = imageFrame.pixelData;
 

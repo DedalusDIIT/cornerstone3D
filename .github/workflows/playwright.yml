@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 20
       - name: Install dependencies playwright
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-scripts
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
       - name: Run Playwright tests
@@ -44,7 +44,7 @@ jobs:
         with:
           node-version: 20
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Download blob reports from GitHub Actions Artifacts
         uses: actions/download-artifact@v4

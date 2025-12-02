@@ -6,30 +6,31 @@ import type { Types } from '@cornerstonejs/core';
  * NOTE: This function should not be called directly.
  *
  * @param element - The element that the segmentation is being added to.
- * @param segmentationRepresentationUID - The UID of the surface representation to remove.
- * @param removeFromCache - boolean
+ * @param segmentationId - The id of the segmentation to remove.
  *
  * @internal
  */
-function removeContourFromElement(
+function removeSurfaceFromElement(
   element: HTMLDivElement,
-  segmentationRepresentationUID: string,
-  removeFromCache = false // Todo
+  segmentationId: string
 ): void {
   const enabledElement = getEnabledElement(element);
+
   const { viewport } = enabledElement;
 
   const actorEntries = (viewport as Types.IVolumeViewport).getActors();
 
-  // remove actors whose id has the same prefix as the segmentationRepresentationUID
-  const actorUIDsToRemove = actorEntries
-    .map(({ uid }) =>
-      uid.startsWith(segmentationRepresentationUID) ? uid : undefined
-    )
-    .filter(Boolean);
+  const filteredSurfaceActors = actorEntries.filter(
+    (actor) =>
+      (actor as Types.ActorEntry).representationUID &&
+      typeof (actor as Types.ActorEntry).representationUID === 'string' &&
+      ((actor as Types.ActorEntry).representationUID as string).startsWith(
+        segmentationId
+      )
+  );
 
-  // @ts-ignore
-  viewport.removeActors(actorUIDsToRemove);
+  // remove actors whose id has the same prefix as the segmentationId
+  viewport.removeActors(filteredSurfaceActors.map((actor) => actor.uid));
 }
 
-export default removeContourFromElement;
+export default removeSurfaceFromElement;

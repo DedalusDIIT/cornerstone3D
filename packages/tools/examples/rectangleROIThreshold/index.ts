@@ -1,7 +1,7 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   cache,
   RenderingEngine,
-  Types,
   Enums,
   setVolumesForViewports,
   volumeLoader,
@@ -25,14 +25,13 @@ console.warn(
 );
 
 const {
-  SegmentationDisplayTool,
   ToolGroupManager,
   Enums: csToolsEnums,
   segmentation,
   RectangleROIThresholdTool,
   PanTool,
   ZoomTool,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   annotation,
   utilities: csToolsUtils,
 } = cornerstoneTools;
@@ -42,7 +41,6 @@ const { MouseBindings } = csToolsEnums;
 const { ViewportType } = Enums;
 
 // Define a unique id for the volume
-const volumeName = 'CT_VOLUME_ID'; // Id of the volume less loader prefix
 const volumeLoaderScheme = 'cornerstoneStreamingImageVolume'; // Loader id which defines which volume loader to use
 
 const ctVolumeName = 'CT_VOLUME_ID'; // Id of the volume less loader prefix
@@ -53,8 +51,6 @@ const volumeId = ptVolumeId;
 
 const segmentationId = 'MY_SEGMENTATION_ID';
 const toolGroupId = 'MY_TOOLGROUP_ID';
-
-let segmentationRepresentationByUID;
 
 // ======== Set up page ======== //
 setTitleAndDescription(
@@ -153,7 +149,6 @@ addButtonToToolbar({
     const ctVolume = cache.getVolume(ctVolumeId);
     const ptVolume = cache.getVolume(ptVolumeId);
     const segmentationVolume = cache.getVolume(segmentationId);
-
     csToolsUtils.segmentation.rectangleROIThresholdVolumeByRange(
       selectedAnnotationUIDs,
       segmentationVolume,
@@ -234,7 +229,7 @@ addSliderToToolbar({
 
 async function addSegmentationsToState() {
   // Create a segmentation of the same resolution as the source data
-  await volumeLoader.createAndCacheDerivedSegmentationVolume(volumeId, {
+  volumeLoader.createAndCacheDerivedLabelmapVolume(volumeId, {
     volumeId: segmentationId,
   });
 
@@ -265,8 +260,7 @@ async function run() {
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(ZoomTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
-  cornerstoneTools.addTool(SegmentationDisplayTool);
+  cornerstoneTools.addTool(StackScrollTool);
   cornerstoneTools.addTool(RectangleROIThresholdTool);
 
   // Define tool groups to add the segmentation display tool to
@@ -275,12 +269,10 @@ async function run() {
   // Manipulation Tools
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
 
   // Segmentation Tools
-  toolGroup.addTool(SegmentationDisplayTool.toolName);
   toolGroup.addTool(RectangleROIThresholdTool.toolName);
-  toolGroup.setToolEnabled(SegmentationDisplayTool.toolName);
 
   toolGroup.setToolActive(RectangleROIThresholdTool.toolName, {
     bindings: [{ mouseButton: MouseBindings.Primary }],
@@ -302,9 +294,11 @@ async function run() {
   });
   // As the Stack Scroll mouse wheel is a tool using the `mouseWheelCallback`
   // hook instead of mouse buttons, it does not need to assign any mouse button.
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Wheel }],
+  });
 
-  const wadoRsRoot = 'https://domvja9iplmyu.cloudfront.net/dicomweb';
+  const wadoRsRoot = 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb';
   const StudyInstanceUID =
     '1.3.6.1.4.1.14519.5.2.1.7009.2403.871108593056125491804754960339';
 
@@ -410,16 +404,17 @@ async function run() {
     [viewportId1, viewportId2, viewportId3]
   );
 
-  // // Add the segmentation representation to the toolgroup
-  const segmentationRepresentationByUIDs =
-    await segmentation.addSegmentationRepresentations(toolGroupId, [
-      {
-        segmentationId,
-        type: csToolsEnums.SegmentationRepresentations.Labelmap,
-      },
-    ]);
+  // Add the segmentation representation to the viewports
+  const segmentationRepresentation = {
+    segmentationId,
+    type: csToolsEnums.SegmentationRepresentations.Labelmap,
+  };
 
-  segmentationRepresentationByUID = segmentationRepresentationByUIDs[0];
+  await segmentation.addLabelmapRepresentationToViewportMap({
+    [viewportId1]: [segmentationRepresentation],
+    [viewportId2]: [segmentationRepresentation],
+    [viewportId3]: [segmentationRepresentation],
+  });
 
   // Render the image
   renderingEngine.renderViewports([viewportId1, viewportId2, viewportId3]);

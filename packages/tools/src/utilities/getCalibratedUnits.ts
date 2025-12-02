@@ -1,20 +1,28 @@
-import { Enums, utilities } from '@cornerstonejs/core';
+import { Enums } from '@cornerstonejs/core';
 
 const { CalibrationTypes } = Enums;
 const PIXEL_UNITS = 'px';
-
+const VOXEL_UNITS = 'voxels';
+/**
+ * DICOM Region Data Types as defined in the DICOM standard
+ * https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.8.5.5.html#sect_C.8.5.5.1.2
+ */
 const SUPPORTED_REGION_DATA_TYPES = [
   1, // Tissue
-];
-
-const SUPPORTED_LENGTH_VARIANT = [
-  '3,3', // x: cm  &  y:cm
+  2, // Color Flow
+  3, // PW Spectral Doppler
+  4, // CW Spectral Doppler
 ];
 
 const SUPPORTED_PROBE_VARIANT = [
-  '4,3', // x: seconds  &  y : cm
+  '4,3', // x: seconds & y : cm
+  '4,7', // x: seconds & y : cm/sec
 ];
 
+/**
+ * DICOM Pixel Physical Units as defined in the DICOM standard
+ * https://dicom.nema.org/medical/dicom/current/output/chtml/part03/sect_C.8.5.5.html#sect_C.8.5.5.1.6
+ */
 const UNIT_MAPPING = {
   0: 'px',
   1: 'percent',
@@ -31,6 +39,17 @@ const UNIT_MAPPING = {
 
 const EPS = 1e-3;
 const SQUARE = '\xb2';
+
+// everything except REGION/Uncalibrated
+const types = [
+  CalibrationTypes.ERMF,
+  CalibrationTypes.USER,
+  CalibrationTypes.ERROR,
+  CalibrationTypes.PROJECTION,
+  CalibrationTypes.CALIBRATED,
+  CalibrationTypes.UNKNOWN,
+];
+
 /**
  * Extracts the calibrated length units, area units, and the scale
  * for converting from internal spacing to image spacing.
@@ -40,115 +59,77 @@ const SQUARE = '\xb2';
  * @returns Object containing the units, area units, and scale
  */
 const getCalibratedLengthUnitsAndScale = (image, handles) => {
-  const { calibration, hasPixelSpacing } = image;
-  let units = hasPixelSpacing ? 'mm' : PIXEL_UNITS;
-  let areaUnits = units + SQUARE;
-  let scale = 1;
+  const { calibration, hasPixelSpacing, spacing = [1, 1, 1] } = image;
+  let unit = hasPixelSpacing ? 'mm' : PIXEL_UNITS;
+  const volumeUnit = hasPixelSpacing ? 'mm\xb3' : VOXEL_UNITS;
+  let areaUnit = unit + SQUARE;
+  const baseScale = calibration?.scale || 1;
+  let scale = baseScale / (calibration?.columnPixelSpacing || spacing[0]);
+  let scaleY = baseScale / (calibration?.rowPixelSpacing || spacing[1]);
+  let scaleZ = baseScale / spacing[2];
   let calibrationType = '';
 
   if (
     !calibration ||
     (!calibration.type && !calibration.sequenceOfUltrasoundRegions)
   ) {
-    return { units, areaUnits, scale };
+    return { unit, areaUnit, scale, scaleY, scaleZ, volumeUnit };
   }
-
-  if (calibration.type === CalibrationTypes.UNCALIBRATED) {
-    return { units: PIXEL_UNITS, areaUnits: PIXEL_UNITS + SQUARE, scale };
-  }
-
-  if (calibration.sequenceOfUltrasoundRegions) {
-    let imageIndex1, imageIndex2;
-    if (Array.isArray(handles) && handles.length === 2) {
-      [imageIndex1, imageIndex2] = handles;
-    } else if (typeof handles === 'function') {
-      const points = handles();
-      imageIndex1 = points[0];
-      imageIndex2 = points[1];
-    }
-
-    let regions = calibration.sequenceOfUltrasoundRegions.filter(
-      (region) =>
-        imageIndex1[0] >= region.regionLocationMinX0 &&
-        imageIndex1[0] <= region.regionLocationMaxX1 &&
-        imageIndex1[1] >= region.regionLocationMinY0 &&
-        imageIndex1[1] <= region.regionLocationMaxY1 &&
-        imageIndex2[0] >= region.regionLocationMinX0 &&
-        imageIndex2[0] <= region.regionLocationMaxX1 &&
-        imageIndex2[1] >= region.regionLocationMinY0 &&
-        imageIndex2[1] <= region.regionLocationMaxY1
-    );
-
-    // If we are not in a region at all we should show the underlying calibration
-    // which might be the mm spacing for the image
-    if (!regions?.length) {
-      return { units, areaUnits, scale };
-    }
-
-    // if we are in a region then it is the question of whether we support it
-    // or not. If we do not support it we should show px
-
-    regions = regions.filter(
-      (region) =>
-        SUPPORTED_REGION_DATA_TYPES.includes(region.regionDataType) &&
-        SUPPORTED_LENGTH_VARIANT.includes(
-          `${region.physicalUnitsXDirection},${region.physicalUnitsYDirection}`
-        )
-    );
-
-    if (!regions.length) {
-      return { units: PIXEL_UNITS, areaUnits: PIXEL_UNITS + SQUARE, scale };
-    }
-
-    // Todo: expand on this logic
-    const region = regions[0];
-
-    const physicalDeltaX = Math.abs(region.physicalDeltaX);
-    const physicalDeltaY = Math.abs(region.physicalDeltaY);
-
-    // if we are in a supported region then we should check if the
-    // physicalDeltaX and physicalDeltaY are the same. If they are not
-    // then we should show px again, but if they are the same then we should
-    // show the units
-    const isSamePhysicalDelta = utilities.isEqual(
-      physicalDeltaX,
-      physicalDeltaY,
-      EPS
-    );
-
-    if (isSamePhysicalDelta) {
-      // 1 to 1 aspect ratio, we use just one of them
-      scale = 1 / physicalDeltaX;
-      calibrationType = 'US Region';
-      units = UNIT_MAPPING[region.physicalUnitsXDirection] || 'unknown';
-      areaUnits = units + SQUARE;
-    } else {
-      // here we are showing at the aspect ratio of the physical delta
-      // if they are not the same, then we should show px, but the correct solution
-      // is to grab each point separately and scale them individually
-      // Todo: implement this
-      return { units: PIXEL_UNITS, areaUnits: PIXEL_UNITS + SQUARE, scale };
-    }
-  } else if (calibration.scale) {
-    scale = calibration.scale;
-  }
-
-  // everything except REGION/Uncalibrated
-  const types = [
-    CalibrationTypes.ERMF,
-    CalibrationTypes.USER,
-    CalibrationTypes.ERROR,
-    CalibrationTypes.PROJECTION,
-  ];
 
   if (types.includes(calibration?.type)) {
     calibrationType = calibration.type;
   }
 
+  if (calibration.type === CalibrationTypes.UNCALIBRATED) {
+    return {
+      unit: PIXEL_UNITS,
+      areaUnit: PIXEL_UNITS + SQUARE,
+      scale,
+      scaleY,
+      scaleZ,
+      volumeUnit: VOXEL_UNITS,
+    };
+  }
+
+  if (calibration.sequenceOfUltrasoundRegions) {
+    const region = calibration.sequenceOfUltrasoundRegions.find(
+      (region) =>
+        handles.every(
+          (handle) =>
+            handle[0] >= region.regionLocationMinX0 &&
+            handle[0] <= region.regionLocationMaxX1 &&
+            handle[1] >= region.regionLocationMinY0 &&
+            handle[1] <= region.regionLocationMaxY1
+        ) && SUPPORTED_REGION_DATA_TYPES.includes(region.regionDataType)
+    );
+
+    // If we are not in a region at all we should show the underlying calibration
+    // which might be the mm spacing for the image
+    if (
+      region &&
+      region.physicalUnitsXDirection === region.physicalUnitsYDirection
+    ) {
+      const physicalDeltaX = Math.abs(region.physicalDeltaX);
+      const physicalDeltaY = Math.abs(region.physicalDeltaY);
+
+      // 1 to 1 aspect ratio, we use just one of them
+      scale = 1 / physicalDeltaX;
+      scaleY = 1 / physicalDeltaY;
+      calibrationType = 'US Region';
+      unit = UNIT_MAPPING[region.physicalUnitsXDirection] || 'unknown';
+      areaUnit = unit + SQUARE;
+    }
+  } else if (calibration.scale) {
+    scale = calibration.scale;
+  }
+
   return {
-    units: units + (calibrationType ? ` ${calibrationType}` : ''),
-    areaUnits: areaUnits + (calibrationType ? ` ${calibrationType}` : ''),
+    unit: unit + (calibrationType ? ` ${calibrationType}` : ''),
+    areaUnit: areaUnit + (calibrationType ? ` ${calibrationType}` : ''),
+    volumeUnit: volumeUnit + (calibrationType ? ` ${calibrationType}` : ''),
     scale,
+    scaleY,
+    scaleZ,
   };
 };
 

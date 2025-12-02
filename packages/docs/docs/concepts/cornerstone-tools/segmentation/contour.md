@@ -1,6 +1,7 @@
 ---
 id: segmentation-contour
 title: Contour Representation
+summary: Segmentation representation composed of hierarchical contour sets, where each set contains multiple contours representing distinct anatomical structures
 ---
 
 # Contour Segmentation Representation
@@ -46,11 +47,12 @@ segmentation.addSegmentations([
   },
 ]);
 
-// add segmentation representation
-await segmentation.addSegmentationRepresentations(toolGroupId, [
+// Add contour representation to a specific viewport
+await segmentation.addContourRepresentationToViewport(viewportId, [
   {
     segmentationId,
-    type: csToolsEnums.SegmentationRepresentations.Contour,
+    type: Enums.SegmentationRepresentations.Contour,
   },
 ]);
+
 ```

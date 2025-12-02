@@ -8,19 +8,21 @@ import {
 
 import { default as wadouri } from './wadouri/index';
 import { default as wadors } from './wadors/index';
-import { default as configure } from './configure';
+import { default as init } from '../init';
 import { default as convertColorSpace } from './convertColorSpace';
 import { default as createImage } from './createImage';
-import { default as decodeImageFrame } from './decodeImageFrame';
 import { default as decodeJPEGBaseline8BitColor } from './decodeJPEGBaseline8BitColor';
 import { default as getImageFrame } from './getImageFrame';
 import { default as getMinMax } from '../shared/getMinMax';
 import { default as isColorImage } from '../shared/isColorImage';
 import { default as isJPEGBaseline8BitColor } from './isJPEGBaseline8BitColor';
-import { default as webWorkerManager } from './webWorkerManager';
 import { default as getPixelData } from './wadors/getPixelData';
+import { default as getScalingParameters } from './getScalingParameters';
+import { default as isColorConversionRequired } from './isColorConversionRequired';
+import { default as removeAFromRGBA } from './removeAFromRGBA';
+import { default as isModalityLUTForDisplay } from './isModalityLutForDisplay';
+import { default as setPixelDataType } from './setPixelDataType';
 import { internal } from './internal/index';
-import { default as external } from '../externalModules';
 
 const cornerstoneDICOMImageLoader = {
   convertRGBColorByPixel,
@@ -30,19 +32,21 @@ const cornerstoneDICOMImageLoader = {
   convertPALETTECOLOR,
   wadouri,
   wadors,
-  configure,
+  init,
   convertColorSpace,
   createImage,
-  decodeImageFrame,
   decodeJPEGBaseline8BitColor,
   getImageFrame,
   getPixelData,
   getMinMax,
   isColorImage,
   isJPEGBaseline8BitColor,
-  webWorkerManager,
+  getScalingParameters,
+  isColorConversionRequired,
+  removeAFromRGBA,
+  isModalityLUTForDisplay,
+  setPixelDataType,
   internal,
-  external,
 };
 
 export {
@@ -53,19 +57,16 @@ export {
   convertPALETTECOLOR,
   wadouri,
   wadors,
-  configure,
+  init,
   convertColorSpace,
   createImage,
-  decodeImageFrame,
   decodeJPEGBaseline8BitColor,
   getImageFrame,
   getPixelData,
   getMinMax,
   isColorImage,
   isJPEGBaseline8BitColor,
-  webWorkerManager,
   internal,
-  external,
 };
 
 export default cornerstoneDICOMImageLoader;

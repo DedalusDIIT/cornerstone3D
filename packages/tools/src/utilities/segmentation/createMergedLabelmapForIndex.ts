@@ -1,5 +1,5 @@
-import { Types } from '@cornerstonejs/core';
-import { volumeLoader, utilities as csUtils } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { volumeLoader, utilities as csUtils, cache } from '@cornerstonejs/core';
 
 /**
  * Given a list of labelmaps (with the possibility of overlapping regions), and
@@ -30,13 +30,16 @@ function createMergedLabelmapForIndex(
 
   const labelmap = labelmaps[0];
 
-  const arrayType = (labelmap.getScalarData() as any).constructor;
-  const outputData = new arrayType(labelmap.getScalarData().length);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const arrayType = labelmap.voxelManager.getConstructor() as any;
+
+  const outputData = new arrayType(labelmap.voxelManager.getScalarDataLength());
 
   labelmaps.forEach((labelmap) => {
-    const scalarData = labelmap.getScalarData();
-    for (let i = 0; i < scalarData.length; i++) {
-      if (scalarData[i] === segmentIndex) {
+    const voxelManager = labelmap.voxelManager;
+    const scalarDataLength = voxelManager.getScalarDataLength();
+    for (let i = 0; i < scalarDataLength; i++) {
+      if (voxelManager.getAtIndex(i) === segmentIndex) {
         outputData[i] = segmentIndex;
       }
     }
@@ -51,13 +54,15 @@ function createMergedLabelmapForIndex(
     dimensions: labelmap.dimensions,
   };
 
-  const preventCache = true;
-  // Todo: following should be async
-  const mergedVolume = volumeLoader.createLocalVolume(
-    options,
-    volumeId,
-    preventCache
-  );
+  const cachedVolume = cache.getVolume(volumeId);
+
+  let mergedVolume;
+  if (cachedVolume) {
+    mergedVolume = cachedVolume;
+    mergedVolume.voxelManager.setCompleteScalarDataArray(outputData);
+  } else {
+    mergedVolume = volumeLoader.createLocalVolume(volumeId, options);
+  }
 
   return mergedVolume;
 }

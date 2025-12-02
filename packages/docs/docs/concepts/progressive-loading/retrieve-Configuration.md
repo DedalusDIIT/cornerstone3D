@@ -2,6 +2,7 @@
 id: retrieve-configuration
 title: Retrieve Configuration
 toc_max_heading_level: 5
+summary: Comprehensive guide to configuring progressive image loading through stages and options, with details on streaming and byte range request methods
 ---
 
 # Retrieve Configuration
@@ -99,11 +100,11 @@ Most often, when the stream is coming from a server, the server lets the client 
 
 Different levels are, if the downloaded portion at the time of decoding is
 
-- <8% of the total data, then decode to level 3
-- 8 < x < 13% of the total data, then decode to level 2
-- 13 < x < 27% of the total data, then decode to level 1
-- < 100 (means it is not finished) then decode to level 0
-- 100% of the total data (stream is finished), then decode to level 0
+- \< 8 \% of the total data, then decode to level 3
+- 8 \< x \< 13 \% of the total data, then decode to level 2
+- 13 \< x \< 27 \% of the total data, then decode to level 1
+- \< 100 (means it is not finished) then decode to level 0
+- 100 \% of the total data (stream is finished), then decode to level 0
 
 :::tip
 How did we come up with these levels? It is kind of simple.

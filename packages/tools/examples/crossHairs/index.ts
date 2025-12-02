@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   setVolumesForViewports,
   volumeLoader,
@@ -106,14 +106,12 @@ addButtonToToolbar({
     const resetZoom = true;
     const resetToCenter = true;
     const resetRotation = true;
-    const supressEvents = false;
-    viewport1.resetCamera(
+    viewport1.resetCamera({
       resetPan,
       resetZoom,
       resetToCenter,
       resetRotation,
-      supressEvents
-    );
+    });
 
     viewport1.render();
   },
@@ -232,6 +230,36 @@ addToggleButtonToToolbar({
   },
 });
 
+addDropdownToToolbar({
+  labelText: 'Center Point Size',
+  options: {
+    values: [0, 1, 2, 3, 4, 5],
+    defaultValue: 0,
+  },
+  onSelectedValueChange: (selectedValue) => {
+    const toolGroup = ToolGroupManager.getToolGroup(toolGroupId);
+
+    const crosshairsInstance = toolGroup.getToolInstance(
+      CrosshairsTool.toolName
+    );
+    const oldConfiguration = crosshairsInstance.configuration;
+
+    const newCenterPointConfig = {
+      ...oldConfiguration.centerPoint,
+      enabled: +selectedValue > 0,
+      size: +selectedValue,
+    };
+
+    crosshairsInstance.configuration = {
+      ...oldConfiguration,
+      centerPoint: newCenterPointConfig,
+    };
+
+    const renderingEngine = getRenderingEngine(renderingEngineId);
+    renderingEngine.render();
+  },
+});
+
 function setUpSynchronizers() {
   synchronizer = createSlabThicknessSynchronizer(synchronizerId);
 
@@ -264,7 +292,7 @@ async function run() {
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
     wadoRsRoot:
-      getLocalUrl() || 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+      getLocalUrl() || 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Define a volume in memory

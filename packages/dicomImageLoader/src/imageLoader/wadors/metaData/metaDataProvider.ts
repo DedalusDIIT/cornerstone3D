@@ -1,14 +1,20 @@
-import external from '../../../externalModules';
+import * as dicomParser from 'dicom-parser';
+import {
+  Enums,
+  utilities,
+  metaData as coreMetaData,
+} from '@cornerstonejs/core';
 import getNumberValues from './getNumberValues';
 import getNumberValue from './getNumberValue';
 import getOverlayPlaneModule from './getOverlayPlaneModule';
-import metaDataManager from '../metaDataManager';
+import metaDataManager, {
+  retrieveMultiframeMetadataImageId,
+} from '../metaDataManager';
 import getValue from './getValue';
 import {
   getMultiframeInformation,
   getFrameInformation,
 } from '../combineFrameInstance';
-import multiframeMetadata from '../retrieveMultiframeMetadata';
 import {
   extractOrientationFromMetadata,
   extractPositionFromMetadata,
@@ -22,13 +28,11 @@ import {
 import { getUSEnhancedRegions } from './USHelpers';
 
 function metaDataProvider(type, imageId) {
-  const { MetadataModules } = external.cornerstone.Enums;
-  const { dicomParser } = external;
+  const { MetadataModules } = Enums;
 
   if (type === MetadataModules.MULTIFRAME) {
     // the get function removes the PerFrameFunctionalGroupsSequence
-    const { metadata, frame } =
-      multiframeMetadata.retrieveMultiframeMetadata(imageId);
+    const { metadata, frame } = retrieveMultiframeMetadataImageId(imageId);
 
     if (!metadata) {
       return;
@@ -69,10 +73,8 @@ function metaDataProvider(type, imageId) {
   if (type === MetadataModules.GENERAL_STUDY) {
     return {
       studyDescription: getValue<string>(metaData['00081030']),
-      studyDate: dicomParser.parseDA(getValue<string>(metaData['00080020'])),
-      studyTime: dicomParser.parseTM(
-        getValue<string>(metaData['00080030'], 0, '')
-      ),
+      studyDate: getValue<string>(metaData['00080020']),
+      studyTime: getValue<string>(metaData['00080030']),
       accessionNumber: getValue<string>(metaData['00080050']),
     };
   }
@@ -81,18 +83,13 @@ function metaDataProvider(type, imageId) {
     return {
       modality: getValue<string>(metaData['00080060']),
       seriesInstanceUID: getValue<string>(metaData['0020000E']),
+      seriesDescription: getValue<string>(metaData['0008103E']),
       seriesNumber: getNumberValue(metaData['00200011']),
       studyInstanceUID: getValue<string>(metaData['0020000D']),
-      seriesDate: dicomParser.parseDA(getValue<string>(metaData['00080021'])),
-      seriesTime: dicomParser.parseTM(
-        getValue<string>(metaData['00080031'], 0, '')
-      ),
-      acquisitionDate: dicomParser.parseDA(
-        getValue<string>(metaData['00080022'])
-      ),
-      acquisitionTime: dicomParser.parseTM(
-        getValue<string>(metaData['00080032'], 0, '')
-      ),
+      seriesDate: getValue<string>(metaData['00080021']),
+      seriesTime: getValue<string>(metaData['00080031']),
+      acquisitionDate: getValue<string>(metaData['00080022']),
+      acquisitionTime: getValue<string>(metaData['00080032']),
     };
   }
 
@@ -123,7 +120,7 @@ function metaDataProvider(type, imageId) {
   }
 
   if (type === MetadataModules.NM_MULTIFRAME_GEOMETRY) {
-    const modality = getValue(metaData['00080060']);
+    const modality = getValue(metaData['00080060']) as string;
     const imageSubType = getImageTypeSubItemFromMetadata(metaData, 2);
 
     return {
@@ -143,22 +140,24 @@ function metaDataProvider(type, imageId) {
 
   if (type === MetadataModules.IMAGE_PLANE) {
     //metaData = fixNMMetadata(metaData);
-    const imageOrientationPatient = extractOrientationFromMetadata(metaData);
-    const imagePositionPatient = extractPositionFromMetadata(metaData);
+    let imageOrientationPatient = extractOrientationFromMetadata(metaData);
+    let imagePositionPatient = extractPositionFromMetadata(metaData);
     const pixelSpacing = getNumberValues(metaData['00280030'], 2);
 
     let columnPixelSpacing = null;
-
     let rowPixelSpacing = null;
+    let rowCosines = null;
+    let columnCosines = null;
 
+    let usingDefaultValues = false;
     if (pixelSpacing) {
       rowPixelSpacing = pixelSpacing[0];
       columnPixelSpacing = pixelSpacing[1];
+    } else {
+      usingDefaultValues = true;
+      rowPixelSpacing = 1;
+      columnPixelSpacing = 1;
     }
-
-    let rowCosines = null;
-
-    let columnCosines = null;
 
     if (imageOrientationPatient) {
       rowCosines = [
@@ -177,6 +176,16 @@ function metaDataProvider(type, imageId) {
         // @ts-expect-error
         parseFloat(imageOrientationPatient[5]),
       ];
+    } else {
+      rowCosines = [1, 0, 0];
+      columnCosines = [0, 1, 0];
+      usingDefaultValues = true;
+      imageOrientationPatient = [...rowCosines, ...columnCosines];
+    }
+
+    if (!imagePositionPatient) {
+      imagePositionPatient = [0, 0, 0];
+      usingDefaultValues = true;
     }
 
     return {
@@ -192,6 +201,7 @@ function metaDataProvider(type, imageId) {
       pixelSpacing,
       rowPixelSpacing,
       columnPixelSpacing,
+      usingDefaultValues,
     };
   }
 
@@ -249,9 +259,10 @@ function metaDataProvider(type, imageId) {
 
   if (type === MetadataModules.VOI_LUT) {
     return {
-      // TODO VOT LUT Sequence
       windowCenter: getNumberValues(metaData['00281050'], 1),
       windowWidth: getNumberValues(metaData['00281051'], 1),
+      voiLUTFunction: getValue(metaData['00281056']),
+      // TODO VOT LUT Sequence
     };
   }
 
@@ -280,8 +291,10 @@ function metaDataProvider(type, imageId) {
 
     return {
       radiopharmaceuticalInfo: {
-        radiopharmaceuticalStartTime: dicomParser.parseTM(
-          getValue(radiopharmaceuticalInfo['00181072'], 0, '')
+        radiopharmaceuticalStartTime: getValue(
+          radiopharmaceuticalInfo['00181072'],
+          0,
+          ''
         ),
         radiopharmaceuticalStartDateTime: getValue(
           radiopharmaceuticalInfo['00181078'],
@@ -309,8 +322,17 @@ function metaDataProvider(type, imageId) {
   }
 
   if (type === MetadataModules.PET_SERIES) {
+    let correctedImageData = metaData['00280051'];
+    let correctedImage = getValue(metaData['00280051']);
+    if (
+      correctedImageData &&
+      correctedImageData.Value &&
+      Array.isArray(correctedImageData.Value)
+    ) {
+      correctedImage = correctedImageData.Value.join('\\');
+    }
     return {
-      correctedImage: getValue(metaData['00280051']),
+      correctedImage,
       units: getValue(metaData['00541001']),
       decayCorrection: getValue(metaData['00541102']),
     };
@@ -325,14 +347,13 @@ function metaDataProvider(type, imageId) {
 
   // Note: this is not a DICOM module, but rather an aggregation on all others
   if (type === 'instance') {
-    return getInstanceModule(imageId, metaDataProvider, instanceModuleNames);
+    return coreMetaData.getNormalized(imageId, instanceModuleNames);
   }
 }
 
 export function getImageUrlModule(imageId, metaData) {
   const { transferSyntaxUID } = getTransferSyntax(imageId, metaData);
-  const isVideo =
-    external.cornerstone.utilities.isVideoTransferSyntax(transferSyntaxUID);
+  const isVideo = utilities.isVideoTransferSyntax(transferSyntaxUID);
   const imageUrl = imageId.substring(7);
   const thumbnail = imageUrl.replace('/frames/', '/thumbnail/');
   let rendered = imageUrl.replace('/frames/', '/rendered/');

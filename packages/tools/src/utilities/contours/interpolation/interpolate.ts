@@ -1,4 +1,4 @@
-import { triggerEvent, utilities } from '@cornerstonejs/core';
+import { eventTarget, triggerEvent, utilities } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 import { vec3 } from 'gl-matrix';
 
@@ -11,7 +11,7 @@ import EventTypes from '../../../enums/Events';
 import * as annotationState from '../../../stateManagement/annotation';
 import selectHandles from './selectHandles';
 import updateChildInterpolationUID from './updateChildInterpolationUID';
-import { createPolylineHole } from '../../../eventListeners/annotations/contourSegmentation/contourSegmentationCompleted';
+import { createPolylineHole } from '../../contourSegmentation';
 
 const { PointsManager } = utilities;
 
@@ -24,7 +24,7 @@ export type PointsXYZI = Types.PointsXYZ & {
   kIndex?: number;
 };
 
-export type PointsArray3 = Types.PointsManager<Types.Point3> & {
+export type PointsArray3 = Types.IPointsManager<Types.Point3> & {
   I?: boolean[];
 };
 
@@ -109,6 +109,11 @@ function startInterpolation(viewportData: InterpolationViewportData) {
   if (interpolationList.length) {
     triggerEvent(
       viewportData.viewport.element,
+      EventTypes.ANNOTATION_INTERPOLATION_PROCESS_COMPLETED,
+      eventDetails
+    );
+    triggerEvent(
+      eventTarget,
       EventTypes.ANNOTATION_INTERPOLATION_PROCESS_COMPLETED,
       eventDetails
     );
@@ -611,8 +616,7 @@ function _getNodesPerSegment(perimInterp, perimInd) {
       arr.push(i);
     }
     return arr;
-  },
-  []);
+  }, []);
 
   const nodesPerSegment = [];
 

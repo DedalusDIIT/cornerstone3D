@@ -3,7 +3,6 @@ import type { Types } from '@cornerstonejs/tools';
 
 const {
   LengthTool,
-  StackScrollMouseWheelTool,
   StackScrollTool,
   PanTool,
   ZoomTool,
@@ -68,7 +67,6 @@ export default function addManipulationBindings(
   }
 
   if (!registered) {
-    cornerstoneTools.addTool(StackScrollMouseWheelTool);
     cornerstoneTools.addTool(PanTool);
     cornerstoneTools.addTool(ZoomTool);
     cornerstoneTools.addTool(TrackballRotateTool);
@@ -90,9 +88,11 @@ export default function addManipulationBindings(
     maxZoomScale: 4000,
   });
   if (is3DViewport) {
-    toolGroup.addTool(TrackballRotateTool.toolName);
+    toolGroup.addTool(TrackballRotateTool.toolName, {
+      rotateSampleDistanceFactor: 2,
+    });
   } else {
-    toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+    toolGroup.addTool(StackScrollTool.toolName);
   }
   toolGroup.addTool(LengthTool.toolName);
   toolGroup.addTool(StackScrollTool.toolName);
@@ -122,6 +122,9 @@ export default function addManipulationBindings(
         numTouchPoints: 1,
         modifierKey: KeyboardBindings.Alt,
       },
+      {
+        mouseButton: MouseBindings.Wheel,
+      },
     ],
   });
   // Add a length tool binding to allow testing annotations on examples targetting
@@ -149,7 +152,7 @@ export default function addManipulationBindings(
       ],
     });
   } else {
-    toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+    toolGroup.setToolActive(StackScrollTool.toolName);
   }
 
   // Add extra tools from the toolMap

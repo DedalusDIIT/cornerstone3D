@@ -195,10 +195,10 @@ enum Events {
 
   /**
    * Triggers on the event target when a new stack is set on its stack viewport.
-   * Make use of {@link EventTypes.StackViewportNewStack | StackViewportNewStack Event Type } for typing your event listeners for STACK_VIEWPORT_NEW_STACK event,
+   * Make use of {@link EventTypes.StackViewportNewStack | StackViewportNewStack Event Type } for typing your event listeners for VIEWPORT_NEW_IMAGE_SET event,
    * and see what event detail is included in {@link EventTypes.StackViewportNewStackEventDetail | StackViewportNewStack Event Detail }
    */
-  STACK_VIEWPORT_NEW_STACK = 'CORNERSTONE_STACK_VIEWPORT_NEW_STACK',
+  VIEWPORT_NEW_IMAGE_SET = 'CORNERSTONE_VIEWPORT_NEW_IMAGE_SET',
 
   /**
    * Triggers on the element when the underlying StackViewport is scrolled.
@@ -217,11 +217,14 @@ enum Events {
    */
   GEOMETRY_CACHE_GEOMETRY_ADDED = 'CORNERSTONE_GEOMETRY_CACHE_GEOMETRY_ADDED',
 
+  // removed
+  GEOMETRY_CACHE_GEOMETRY_REMOVED = 'CORNERSTONE_GEOMETRY_CACHE_GEOMETRY_REMOVED',
+
   /**
    * Triggers when the scroll function is called with a delta that is out of bounds.
    * This is usually for signaling that the user may want a different volume for partially loaded volumes which is meant to optimize memory.
    */
-  VOLUME_SCROLL_OUT_OF_BOUNDS = 'VOLUME_SCROLL_OUT_OF_BOUNDS',
+  VOLUME_VIEWPORT_SCROLL_OUT_OF_BOUNDS = 'VOLUME_VIEWPORT_SCROLL_OUT_OF_BOUNDS',
 
   /**
    * Triggers when the scroll function is called on a volume.
@@ -236,13 +239,8 @@ enum Events {
   /**
    * Triggers when the webworker has made progress
    * You should use it with a workerType to indicate the type of worker that is making progress
-   * Checkout the polySEG convertors in the cornerstone tools
-   * to lean how to use it
    */
   WEB_WORKER_PROGRESS = 'CORNERSTONE_WEB_WORKER_PROGRESS',
-  // IMAGE_CACHE_FULL = 'CORNERSTONE_IMAGE_CACHE_FULL',
-  // PRE_RENDER = 'CORNERSTONE_PRE_RENDER',
-  // ELEMENT_RESIZED = 'CORNERSTONE_ELEMENT_RESIZED',
 
   /**
    * Triggers on the HTML element when viewport modifies its colormap
@@ -250,6 +248,61 @@ enum Events {
    * and see what event detail is included in {@link EventTypes.ColormapModifiedEventDetail | ColormapModified Event Detail }
    */
   COLORMAP_MODIFIED = 'CORNERSTONE_COLORMAP_MODIFIED',
+
+  /**
+   * Dynamic image volume dimension group number changed
+   * The first dimension group number is 1
+   */
+  DYNAMIC_VOLUME_DIMENSION_GROUP_CHANGED = 'DYNAMIC_VOLUME_DIMENSION_GROUP_CHANGED',
+
+  /**
+   * Dynamic image volume time point index changed
+   * The first timepoint index is 0
+   * @deprecated use DYNAMIC_VOLUME_DIMENSION_GROUP_CHANGED instead
+   */
+  DYNAMIC_VOLUME_TIME_POINT_INDEX_CHANGED = 'DYNAMIC_VOLUME_TIME_POINT_INDEX_CHANGED',
+
+  /**
+   * Dynamic image volume dimension group loaded
+   * The first dimension group number is 1
+   */
+  DYNAMIC_VOLUME_DIMENSION_GROUP_LOADED = 'DYNAMIC_VOLUME_DIMENSION_GROUP_LOADED',
+
+  /**
+   * Dynamic image volume time point loaded
+   * The first timepoint starts at 0
+   * @deprecated use DYNAMIC_VOLUME_DIMENSION_GROUP_LOADED instead
+   */
+  DYNAMIC_VOLUME_TIME_POINT_LOADED = 'DYNAMIC_VOLUME_TIME_POINT_LOADED',
+
+  /**
+   * Triggers on the eventTarget when a geometry has successfully loaded by geometryLoaders
+   *
+   * Make use of {@link EventTypes.GeometryLoadedEvent | GeometryLoaded Event Type } for typing your event listeners for GEOMETRY_LOADED event,
+   * and see what event detail is included in {@link EventTypes.GeometryLoadedEventDetail | GeometryLoaded Event Detail }
+   */
+  GEOMETRY_LOADED = 'GEOMETRY_LOADED',
+
+  /**
+   * Triggers on the eventTarget when a geometry is being loaded by geometryLoaders
+   *
+   * Make use of {@link EventTypes.GeometryLoadProgressEvent | GeometryLoadProgress Event Type } for typing your event listeners for GEOMETRY_LOAD_PROGRESS event,
+   * and see what event detail is included in {@link EventTypes.GeometryLoadProgressEventDetail | GeometryLoadProgress Event Detail }
+   */
+  GEOMETRY_LOAD_PROGRESS = 'GEOMETRY_LOAD_PROGRESS',
+
+  /**
+   * Triggers on the eventTarget when a geometry has failed loading by geometryLoaders
+   *
+   * Make use of {@link EventTypes.GeometryLoadedFailedEvent | GeometryLoadedFailed Event Type } for typing your event listeners for GEOMETRY_LOADED_FAILED event,
+   * and see what event detail is included in {@link EventTypes.GeometryLoadedFailedEventDetail | GeometryLoadedFailed Event Detail }
+   */
+  GEOMETRY_LOADED_FAILED = 'GEOMETRY_LOADED_FAILED',
+
+  /**
+   * Triggers on the viewport's element when the actors are changed via set operator
+   */
+  ACTORS_CHANGED = 'CORNERSTONE_ACTORS_CHANGED',
 }
 
 export default Events;

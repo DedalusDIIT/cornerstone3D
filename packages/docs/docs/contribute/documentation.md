@@ -1,5 +1,7 @@
 ---
 id: documentation
+title: Writing Documentation
+summary: Guidelines for writing and updating documentation for Cornerstone3D, including instructions for running the documentation server locally and troubleshooting common issues
 ---
 
 # Writing Documentation
@@ -21,8 +23,8 @@ cd packages/docs/
 yarn run start
 ```
 
-This will open up port `3333` and start the documentation server. Then you can
-visit `http://localhost:3333` to see the documentation page.
+This will open up port `3000` and start the documentation server. Then you can
+visit `http://localhost:3000` to see the documentation page.
 
 :::note Important
 Running the documentation server for the first time will probably fail complaining about the `example.md`

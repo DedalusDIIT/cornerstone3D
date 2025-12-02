@@ -1,25 +1,22 @@
 import { BaseTool } from './base';
 import { Events } from '../enums';
 
-import { getEnabledElement, StackViewport } from '@cornerstonejs/core';
+import { getEnabledElement, StackViewport, Enums } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
-import { EventTypes, PublicToolProps, ToolProps } from '../types';
+import type { EventTypes, PublicToolProps, ToolProps, IPoints } from '../types';
 import { getViewportIdsWithToolToRender } from '../utilities/viewportFilters';
 import triggerAnnotationRenderForViewportIds from '../utilities/triggerAnnotationRenderForViewportIds';
-import { state } from '../store';
-import { Enums } from '@cornerstonejs/core';
+import { state } from '../store/state';
 
 import {
   hideElementCursor,
   resetElementCursor,
 } from '../cursors/elementCursor';
-import { IPoints } from '../types';
 
 const MAGNIFY_VIEWPORT_ID = 'magnify-viewport';
 
 class MagnifyTool extends BaseTool {
   static toolName;
-  _bounds: any;
   editData: {
     referencedImageId: string;
     viewportIdsToRender: string[];
@@ -96,7 +93,7 @@ class MagnifyTool extends BaseTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     return true;
   };
@@ -116,6 +113,8 @@ class MagnifyTool extends BaseTool {
     const { viewport } = enabledElement;
     const { element } = viewport;
     const viewportProperties = viewport.getProperties();
+    const { rotation: originalViewportRotation } =
+      viewport.getViewPresentation();
 
     const { canvas: canvasPos, world: worldPos } = currentPoints;
 
@@ -164,6 +163,11 @@ class MagnifyTool extends BaseTool {
       // match the original viewport voi range
       magnifyViewport.setProperties(viewportProperties);
 
+      // match the original viewport's rotation
+      magnifyViewport.setViewPresentation({
+        rotation: originalViewportRotation,
+      });
+
       // Use the original viewport for the base for parallelScale
       const { parallelScale } = viewport.getCamera();
 
@@ -197,7 +201,16 @@ class MagnifyTool extends BaseTool {
     });
 
     magnifyToolElement.style.display = 'block';
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
+  };
+
+  _cancelCallback = (evt: EventTypes.InteractionEventType) => {
+    // Empêche l'affichage du menu contextuel par défaut du navigateur
+    evt.preventDefault();
+    evt.stopPropagation();
+
+    // Appelle la fonction qui désactive et nettoie l'outil
+    this._dragEndCallback(evt);
   };
 
   _dragCallback = (evt: EventTypes.InteractionEventType) => {
@@ -249,7 +262,15 @@ class MagnifyTool extends BaseTool {
   };
 
   _dragEndCallback = (evt: EventTypes.InteractionEventType) => {
-    const { element } = evt.detail;
+    let { element } = evt.detail;
+
+    if (element === undefined) {
+      const { enabledElement } = this.editData;
+
+      const { viewport } = enabledElement;
+      element = viewport.element;
+    }
+
     const enabledElement = getEnabledElement(element);
     const { renderingEngine } = enabledElement;
 
@@ -286,6 +307,11 @@ class MagnifyTool extends BaseTool {
     );
 
     element.addEventListener(
+      'contextmenu',
+      this._cancelCallback as EventListener
+    );
+
+    element.addEventListener(
       Events.TOUCH_END,
       this._dragEndCallback as EventListener
     );
@@ -309,6 +335,11 @@ class MagnifyTool extends BaseTool {
     element.removeEventListener(
       Events.MOUSE_CLICK,
       this._dragEndCallback as EventListener
+    );
+
+    element.removeEventListener(
+      'contextmenu',
+      this._cancelCallback as EventListener
     );
     element.removeEventListener(
       Events.TOUCH_END,

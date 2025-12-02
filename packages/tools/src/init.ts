@@ -1,6 +1,5 @@
 import { eventTarget, Enums } from '@cornerstonejs/core';
 import { getAnnotationManager } from './stateManagement/annotation/annotationState';
-import { getDefaultSegmentationStateManager } from './stateManagement/segmentation/segmentationState';
 import { Events as TOOLS_EVENTS } from './enums';
 import { addEnabledElement, removeEnabledElement } from './store';
 import { resetCornerstoneToolsState } from './store/state';
@@ -10,13 +9,16 @@ import {
   annotationSelectionListener,
   annotationModifiedListener,
   segmentationDataModifiedEventListener,
-  segmentationRepresentationModifiedEventListener,
-  segmentationRepresentationRemovedEventListener,
   segmentationModifiedListener,
 } from './eventListeners';
 import { annotationInterpolationEventDispatcher } from './eventDispatchers';
 
 import * as ToolGroupManager from './store/ToolGroupManager';
+import { defaultSegmentationStateManager } from './stateManagement/segmentation/SegmentationStateManager';
+import segmentationRepresentationModifiedListener from './eventListeners/segmentation/segmentationRepresentationModifiedListener';
+import { setConfig } from './config';
+import type { Config } from './config';
+import segmentationRemovedListener from './eventListeners/segmentation/segmentationRemovedEventListener';
 
 let csToolsInitialized = false;
 
@@ -26,10 +28,12 @@ let csToolsInitialized = false;
  * @param defaultConfiguration - A configuration object that will be used to
  * initialize the tool.
  */
-export function init(defaultConfiguration = {}): void {
+export function init(defaultConfiguration = {} as Config): void {
   if (csToolsInitialized) {
     return;
   }
+
+  setConfig(defaultConfiguration);
 
   _addCornerstoneEventListeners();
   _addCornerstoneToolsEventListeners();
@@ -55,8 +59,7 @@ export function destroy(): void {
 
   // remove all annotation.
   const annotationManager = getAnnotationManager();
-  const segmentationStateManager = getDefaultSegmentationStateManager();
-
+  const segmentationStateManager = defaultSegmentationStateManager;
   annotationManager.restoreAnnotations({});
   segmentationStateManager.resetState();
   csToolsInitialized = false;
@@ -142,14 +145,20 @@ function _addCornerstoneToolsEventListeners() {
     TOOLS_EVENTS.SEGMENTATION_DATA_MODIFIED,
     segmentationDataModifiedEventListener
   );
+
   eventTarget.addEventListener(
     TOOLS_EVENTS.SEGMENTATION_REPRESENTATION_MODIFIED,
-    segmentationRepresentationModifiedEventListener
+    segmentationRepresentationModifiedListener
   );
 
   eventTarget.addEventListener(
-    TOOLS_EVENTS.SEGMENTATION_REPRESENTATION_REMOVED,
-    segmentationRepresentationRemovedEventListener
+    TOOLS_EVENTS.SEGMENTATION_REPRESENTATION_ADDED,
+    segmentationRepresentationModifiedListener
+  );
+
+  eventTarget.addEventListener(
+    TOOLS_EVENTS.SEGMENTATION_REMOVED,
+    segmentationRemovedListener
   );
 }
 
@@ -180,6 +189,11 @@ function _removeCornerstoneToolsEventListeners() {
     annotationSelectionListener
   );
 
+  eventTarget.removeEventListener(
+    TOOLS_EVENTS.ANNOTATION_REMOVED,
+    annotationRemovedListener
+  );
+
   /**
    * Segmentation
    */
@@ -193,14 +207,20 @@ function _removeCornerstoneToolsEventListeners() {
     TOOLS_EVENTS.SEGMENTATION_DATA_MODIFIED,
     segmentationDataModifiedEventListener
   );
+
   eventTarget.removeEventListener(
     TOOLS_EVENTS.SEGMENTATION_REPRESENTATION_MODIFIED,
-    segmentationRepresentationModifiedEventListener
+    segmentationRepresentationModifiedListener
   );
 
   eventTarget.removeEventListener(
-    TOOLS_EVENTS.SEGMENTATION_REPRESENTATION_REMOVED,
-    segmentationRepresentationRemovedEventListener
+    TOOLS_EVENTS.SEGMENTATION_REPRESENTATION_ADDED,
+    segmentationRepresentationModifiedListener
+  );
+
+  eventTarget.removeEventListener(
+    TOOLS_EVENTS.SEGMENTATION_REMOVED,
+    segmentationRemovedListener
   );
 }
 

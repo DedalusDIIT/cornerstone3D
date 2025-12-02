@@ -1,5 +1,4 @@
 import type { InitializedOperationData } from '../BrushStrategy';
-import pointInShapeCallback from '../../../../utilities/pointInShapeCallback';
 import StrategyCallbacks from '../../../../enums/StrategyCallbacks';
 
 /**
@@ -13,9 +12,7 @@ export default {
     const {
       segmentsLocked,
       segmentationImageData,
-      segmentationVoxelManager: segmentationVoxelManager,
-      previewVoxelManager: previewVoxelManager,
-      imageVoxelManager: imageVoxelManager,
+      segmentationVoxelManager,
       brushStrategy,
       centerIJK,
     } = operationData;
@@ -33,13 +30,12 @@ export default {
         }
       : (data) => setValue(operationData, data);
 
-    pointInShapeCallback(
-      segmentationImageData as unknown,
-      imageVoxelManager?.isInObject || segmentationVoxelManager.isInObject,
-      callback,
-      segmentationVoxelManager.boundsIJK
-    );
+    segmentationVoxelManager.forEach(callback, {
+      imageData: segmentationImageData,
+      isInObject: operationData.isInObject,
+      boundsIJK: operationData.isInObjectBoundsIJK,
+    });
 
-    previewVoxelManager.addPoint(centerIJK);
+    segmentationVoxelManager.addPoint(centerIJK);
   },
 };

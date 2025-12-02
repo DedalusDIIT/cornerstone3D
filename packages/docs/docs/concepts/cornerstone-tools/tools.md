@@ -1,6 +1,7 @@
 ---
 id: tools
 title: Tools
+summary: Collection of interactive components for image manipulation, annotation, and segmentation that operate in 3D space with shared annotations across viewports
 ---
 
 ## Introduction
@@ -64,8 +65,7 @@ the same annotations.
 
 ### Segmentation Tools
 
-`Cornerstone3D` also provides segmentation tools. This includes 3D `SegmentationDisplay`
-and 3D segmentation editing tools such as brush, rectangle and circle scissors, and
+`Cornerstone3D` also provides segmentation tools. This includes3D segmentation editing tools such as brush, rectangle and circle scissors, and
 3d sphere tools.
 
 We will discuss in length the different types of segmentation tools and how they

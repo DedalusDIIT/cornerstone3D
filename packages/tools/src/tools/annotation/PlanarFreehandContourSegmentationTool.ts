@@ -1,12 +1,12 @@
 import { utilities } from '@cornerstonejs/core';
-import type { PublicToolProps } from '../../types';
-import type { AnnotationRenderContext } from '../../types';
-import { PlanarFreehandContourSegmentationAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type { AnnotationRenderContext, PublicToolProps } from '../../types';
+import type { PlanarFreehandContourSegmentationAnnotation } from '../../types/ToolSpecificAnnotationTypes';
 import { triggerSegmentationDataModified } from '../../stateManagement/segmentation/triggerSegmentationEvents';
 import PlanarFreehandROITool from './PlanarFreehandROITool';
+import AnnotationToPointData from '../../utilities/contours/AnnotationToPointData';
 
-class PlanarFreehandContourSegmentationTool extends PlanarFreehandROITool {
-  static toolName;
+export class PlanarFreehandContourSegmentationTool extends PlanarFreehandROITool {
+  static toolName = 'PlanarFreehandContourSegmentationTool';
 
   constructor(toolProps: PublicToolProps) {
     const initialProps = utilities.deepMerge(
@@ -25,6 +25,10 @@ class PlanarFreehandContourSegmentationTool extends PlanarFreehandROITool {
     );
 
     super(initialProps);
+  }
+
+  static {
+    AnnotationToPointData.register(this);
   }
 
   protected isContourSegmentationTool(): boolean {
@@ -54,8 +58,5 @@ class PlanarFreehandContourSegmentationTool extends PlanarFreehandROITool {
     return renderResult;
   }
 }
-
-PlanarFreehandContourSegmentationTool.toolName =
-  'PlanarFreehandContourSegmentationTool';
 
 export default PlanarFreehandContourSegmentationTool;

@@ -18,7 +18,9 @@ const FINDING_SITE_OLD = { CodingSchemeDesignator: "SRT", CodeValue: "G-C0E3" };
 
 const codeValueMatch = (group, code, oldCode) => {
     const { ConceptNameCodeSequence } = group;
-    if (!ConceptNameCodeSequence) return;
+    if (!ConceptNameCodeSequence) {
+        return;
+    }
     const { CodingSchemeDesignator, CodeValue } = ConceptNameCodeSequence;
     return (
         (CodingSchemeDesignator == code.CodingSchemeDesignator &&
@@ -29,18 +31,16 @@ const codeValueMatch = (group, code, oldCode) => {
     );
 };
 
-function getTID300ContentItem(
-    tool,
-    toolType,
-    ReferencedSOPSequence,
-    toolClass
-) {
-    const args = toolClass.getTID300RepresentationArguments(tool);
+function getTID300ContentItem(tool, ReferencedSOPSequence, adapterClass) {
+    const args = adapterClass.getTID300RepresentationArguments(tool);
     args.ReferencedSOPSequence = ReferencedSOPSequence;
+    args.ReferencedFrameOfReferenceUID = args.use3DSpatialCoordinates
+        ? tool.metadata.FrameOfReferenceUID
+        : null;
 
-    const TID300Measurement = new toolClass.TID300Representation(args);
+    const tid300Measurement = new adapterClass.TID300Representation(args);
 
-    return TID300Measurement;
+    return tid300Measurement;
 }
 
 function getMeasurementGroup(toolType, toolData, ReferencedSOPSequence) {
@@ -58,16 +58,11 @@ function getMeasurementGroup(toolType, toolData, ReferencedSOPSequence) {
 
     // Loop through the array of tool instances
     // for this tool
-    const Measurements = toolTypeData.data.map(tool => {
-        return getTID300ContentItem(
-            tool,
-            toolType,
-            ReferencedSOPSequence,
-            toolClass
-        );
+    const measurements = toolTypeData.data.map(tool => {
+        return getTID300ContentItem(tool, ReferencedSOPSequence, toolClass);
     });
 
-    return new TID1501MeasurementGroup(Measurements);
+    return new TID1501MeasurementGroup(measurements);
 }
 
 export default class MeasurementReport {
@@ -192,7 +187,7 @@ export default class MeasurementReport {
                 allMeasurementGroups.concat(measurementGroups);
         });
 
-        const MeasurementReport = new TID1500MeasurementReport(
+        const tid1500MeasurementReport = new TID1500MeasurementReport(
             { TID1501MeasurementGroups: allMeasurementGroups },
             options
         );
@@ -240,7 +235,7 @@ export default class MeasurementReport {
 
         const report = new StructuredReport([derivationSourceDataset]);
 
-        const contentItem = MeasurementReport.contentItem(
+        const contentItem = tid1500MeasurementReport.contentItem(
             derivationSourceDataset
         );
 

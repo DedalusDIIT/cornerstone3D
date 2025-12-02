@@ -1,6 +1,5 @@
-import { ByteArray } from 'dicom-parser';
-import { ImageFrame } from '../../types';
-import external from '../../externalModules';
+import type { ByteArray } from 'dicom-parser';
+import { metaData, type Types } from '@cornerstonejs/core';
 
 function convertLUTto8Bit(lut: number[], shift: number) {
   const numEntries = lut.length;
@@ -19,10 +18,7 @@ function fetchPaletteData(imageFrame, color, fallback) {
     return Promise.resolve(data);
   }
 
-  const result = external.cornerstone.metaData.get(
-    'imagePixelModule',
-    imageFrame.imageId
-  );
+  const result = metaData.get('imagePixelModule', imageFrame.imageId);
 
   if (result && typeof result.then === 'function') {
     return result.then((module) =>
@@ -42,8 +38,8 @@ function fetchPaletteData(imageFrame, color, fallback) {
  * @param colorBuffer - The buffer to write the converted pixel data to
  * @returns
  */
-export default async function (
-  imageFrame: ImageFrame,
+export default function (
+  imageFrame: Types.IImageFrame,
   colorBuffer: ByteArray,
   useRGBA: boolean
 ): Promise<void> {

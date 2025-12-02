@@ -1,5 +1,7 @@
 ---
 id: requestPoolManager
+title: Request Pool Manager
+summary: System for managing asynchronous image retrieval and decoding with separate queues for different operations, supporting request prioritization and reordering
 ---
 
 # RequestPool Manager
@@ -63,7 +65,7 @@ function sendRequest(imageId, imageIdIndex, options) {
 const imageId = 'schema://image';
 const imageIdIndex = 10;
 
-const requestType = RequestType.Interaction;
+const requestType = RequestType.INTERACTION;
 const priority = -5;
 const additionalDetails = { imageId };
 const options = {

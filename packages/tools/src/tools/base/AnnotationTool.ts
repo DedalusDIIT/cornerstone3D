@@ -4,6 +4,7 @@ import {
   getEnabledElement,
   metaData,
   utilities as csUtils,
+  StackViewport,
 } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 
@@ -12,7 +13,7 @@ import { vec2 } from 'gl-matrix';
 import AnnotationDisplayTool from './AnnotationDisplayTool';
 import { isAnnotationLocked } from '../../stateManagement/annotation/annotationLocking';
 import { isAnnotationVisible } from '../../stateManagement/annotation/annotationVisibility';
-import {
+import type {
   Annotation,
   Annotations,
   EventTypes,
@@ -20,10 +21,25 @@ import {
   InteractionTypes,
   ToolProps,
   PublicToolProps,
+  ContourSegmentationAnnotation,
+  ContourAnnotationData,
 } from '../../types';
-import { addAnnotation } from '../../stateManagement/annotation/annotationState';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
+import {
+  addAnnotation,
+  removeAnnotation,
+  getAnnotation,
+} from '../../stateManagement/annotation/annotationState';
+import type {
+  AnnotationStyle,
+  StyleSpecifier,
+} from '../../types/AnnotationStyle';
 import { triggerAnnotationModified } from '../../stateManagement/annotation/helpers/state';
+import ChangeTypes from '../../enums/ChangeTypes';
+import { setAnnotationSelected } from '../../stateManagement/annotation/annotationSelection';
+import { addContourSegmentationAnnotation } from '../../utilities/contourSegmentation';
+
+const { DefaultHistoryMemo } = csUtils.HistoryMemo;
+const { PointsManager } = csUtils;
 
 /**
  * Abstract class for tools which create and display annotations on the
@@ -36,51 +52,34 @@ import { triggerAnnotationModified } from '../../stateManagement/annotation/help
  * abstract methods.
  */
 abstract class AnnotationTool extends AnnotationDisplayTool {
-  /**
-   * Creates a base annotation object, adding in any annotation base data provided
-   */
-  public static createAnnotation(...annotationBaseData): Annotation {
-    let annotation: Annotation = {
-      annotationUID: null as string,
-      highlighted: true,
-      invalidated: true,
-      metadata: {
-        toolName: this.toolName,
-      },
-      data: {
-        text: '',
-        handles: {
-          points: new Array<Types.Point3>(),
-          textBox: {
-            hasMoved: false,
-            worldPosition: <Types.Point3>[0, 0, 0],
-            worldBoundingBox: {
-              topLeft: <Types.Point3>[0, 0, 0],
-              topRight: <Types.Point3>[0, 0, 0],
-              bottomLeft: <Types.Point3>[0, 0, 0],
-              bottomRight: <Types.Point3>[0, 0, 0],
-            },
-          },
-        },
-        label: '',
-      },
-    } as unknown as Annotation;
-    for (const baseData of annotationBaseData) {
-      annotation = csUtils.deepMerge(annotation, baseData);
-    }
-    return annotation;
-  }
+  protected eventDispatchDetail: {
+    viewportId: string;
+    renderingEngineId: string;
+  };
+  isDrawing: boolean;
+  isHandleOutsideImage: boolean;
+  editData: {
+    annotation: Annotation;
+    viewportIdsToRender?: string[];
+    newAnnotation?: boolean;
+    handleIndex?: number;
+    movingTextBox?: boolean;
+    hasMoved?: boolean;
+  } | null;
 
   /**
    * Creates a new annotation for the given viewport.  This just adds the
    * viewport reference data to the metadata, and otherwise returns the
    * static class createAnnotation data.
    */
-  public static createAnnotationForViewport(viewport, ...annotationBaseData) {
+  public static createAnnotationForViewport<T extends Annotation>(
+    viewport,
+    ...annotationBaseData
+  ): T {
     return this.createAnnotation(
       { metadata: viewport.getViewReference() },
       ...annotationBaseData
-    );
+    ) as T;
   }
 
   /**
@@ -206,7 +205,7 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
     for (const annotation of filteredAnnotations) {
       // Do not do anything if the annotation is locked or hidden.
       if (
-        isAnnotationLocked(annotation) ||
+        isAnnotationLocked(annotation.annotationUID) ||
         !isAnnotationVisible(annotation.annotationUID)
       ) {
         continue;
@@ -358,6 +357,17 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
         specifications,
         annotation
       ),
+      textBoxBorderRadius: this.getStyle(
+        'textBoxBorderRadius',
+        specifications,
+        annotation
+      ),
+      textBoxMargin: this.getStyle('textBoxMargin', specifications, annotation),
+      textBoxLinkLineColor: this.getStyle(
+        'textBoxLinkLineColor',
+        specifications,
+        annotation
+      ),
     };
   }
 
@@ -368,7 +378,7 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
    * @param imageId - The annotation imageId
    * @returns
    */
-  isSuvScaled(
+  public static isSuvScaled(
     viewport: Types.IStackViewport | Types.IVolumeViewport,
     targetId: string,
     imageId?: string
@@ -383,6 +393,8 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
     return typeof scalingModule?.suvbw === 'number';
   }
 
+  isSuvScaled = AnnotationTool.isSuvScaled;
+
   /**
    * Get the style that will be applied to all annotations such as length, cobb
    * angle, arrow annotate, etc. when rendered on a canvas or svg layer
@@ -396,11 +408,13 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
       this.getStyle(property, styleSpecifier, annotation);
     const { annotationUID } = annotation;
     const visibility = isAnnotationVisible(annotationUID);
-    const locked = isAnnotationLocked(annotation);
+    const locked = isAnnotationLocked(annotationUID);
 
-    const lineWidth = getStyle('lineWidth') as number;
+    const lineWidth = getStyle('lineWidth') as string;
     const lineDash = getStyle('lineDash') as string;
+    const angleArcLineDash = getStyle('angleArcLineDash') as string;
     const color = getStyle('color') as string;
+    const markerSize = getStyle('markerSize') as string;
     const shadow = getStyle('shadow') as boolean;
     const textboxStyle = this.getLinkedTextBoxStyle(styleSpecifier, annotation);
 
@@ -415,7 +429,9 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
       fillOpacity: 0,
       shadow,
       textbox: textboxStyle,
-    };
+      markerSize,
+      angleArcLineDash,
+    } as AnnotationStyle;
   }
 
   /**
@@ -458,6 +474,252 @@ abstract class AnnotationTool extends AnnotationDisplayTool {
     if (toolNewImagePoint) {
       return true;
     }
+  }
+
+  /**
+   * Creates an annotation state copy to allow storing the current state of
+   * an annotation.  This class has knowledge about the contour and spline
+   * implementations in order to copy the contour object efficiently, and to
+   * allow copying the spline object (which has member variables etc).
+   *
+   * @param annotation - the annotation to create a clone of
+   * @param deleting - a flag to indicate that this object is about to be deleted (deleting true),
+   *       or was just created (deleting false), or neither (deleting undefined).
+   * @returns state information for the given annotation.
+   */
+  protected static createAnnotationState(
+    annotation: Annotation,
+    deleting?: boolean
+  ) {
+    const { data, annotationUID } = annotation;
+
+    const cloneData = {
+      ...data,
+      cachedStats: {},
+    } as typeof data;
+
+    delete cloneData.contour;
+    delete cloneData.spline;
+
+    const state = {
+      annotationUID,
+      data: structuredClone(cloneData),
+      deleting,
+    };
+
+    const contour = (data as ContourAnnotationData['data']).contour;
+
+    if (contour) {
+      state.data.contour = {
+        ...contour,
+        polyline: null,
+        pointsManager: PointsManager.create3(
+          contour.polyline.length,
+          contour.polyline
+        ),
+      };
+    }
+
+    return state;
+  }
+
+  /**
+   * Creates an annotation memo storing the current data state on the given
+   * annotation object.  This will store/recover handles data, text box and contour
+   * data, and if the options are set for deletion, will apply that correctly.
+   *
+   * @param element - that the annotation is shown on.
+   * @param annotation - to store a memo for the current state.
+   * @param options - whether the annotation is being created (newAnnotation) or
+   *       is in the process of being deleted (`deleting`)
+   *       * Note the naming on deleting is to indicate the deletion is in progress,
+   *         as the createAnnotationMemo needs to be called BEFORE the annotation
+   *         is actually deleted.
+   *       * deleting with a value of false is the same as newAnnotation=true,
+   *         as it is simply the opposite direction.  Use undefined for both
+   *         newAnnotation and deleting for non-create/delete operations.
+   * @returns Memo containing the annotation data.
+   */
+  public static createAnnotationMemo(
+    element,
+    annotation: Annotation,
+    options?: { newAnnotation?: boolean; deleting?: boolean }
+  ) {
+    if (!annotation) {
+      return;
+    }
+    const { newAnnotation, deleting = newAnnotation ? false : undefined } =
+      options || {};
+    const { annotationUID } = annotation;
+    const state = AnnotationTool.createAnnotationState(annotation, deleting);
+
+    const annotationMemo = {
+      restoreMemo: () => {
+        const newState = AnnotationTool.createAnnotationState(
+          annotation,
+          deleting
+        );
+        const { viewport } = getEnabledElement(element) || {};
+        viewport?.setViewReference(annotation.metadata);
+        if (state.deleting === true) {
+          // Handle un deletion - note the state of deleting is internally
+          // true/false/undefined to mean delete/re-create as these are opposite actions.
+          state.deleting = false;
+          Object.assign(annotation.data, state.data);
+          if (annotation.data.contour) {
+            const annotationData =
+              annotation.data as ContourAnnotationData['data'];
+
+            annotationData.contour.polyline = (
+              state.data.contour as ContourAnnotationData['data']['contour']
+            ).pointsManager.points;
+
+            delete (
+              state.data.contour as ContourAnnotationData['data']['contour']
+            ).pointsManager;
+
+            // @ts-expect-error
+            if (annotationData.segmentation) {
+              addContourSegmentationAnnotation(
+                annotation as ContourSegmentationAnnotation
+              );
+            }
+          }
+          state.data = newState.data;
+          addAnnotation(annotation, element);
+          setAnnotationSelected(annotation.annotationUID, true);
+          viewport?.render();
+          return;
+        }
+        if (state.deleting === false) {
+          // Handle deletion (undo of creation)
+          state.deleting = true;
+          // Use the current state as the restore state.
+          state.data = newState.data;
+          setAnnotationSelected(annotation.annotationUID);
+          removeAnnotation(annotation.annotationUID);
+          viewport?.render();
+          return;
+        }
+        const currentAnnotation = getAnnotation(annotationUID);
+        if (!currentAnnotation) {
+          console.warn('No current annotation');
+          return;
+        }
+        Object.assign(currentAnnotation.data, state.data);
+        if (currentAnnotation.data.contour) {
+          (
+            currentAnnotation.data
+              .contour as ContourAnnotationData['data']['contour']
+          ).polyline = (
+            state.data.contour as ContourAnnotationData['data']['contour']
+          ).pointsManager.points;
+        }
+        state.data = newState.data;
+        currentAnnotation.invalidated = true;
+        triggerAnnotationModified(
+          currentAnnotation,
+          element,
+          ChangeTypes.History
+        );
+      },
+      id: annotationUID,
+      operationType: 'annotation',
+    };
+    DefaultHistoryMemo.push(annotationMemo);
+    return annotationMemo;
+  }
+
+  /**
+   * Creates a memo on the given annotation.
+   */
+  protected createMemo(element, annotation, options?) {
+    this.memo ||= AnnotationTool.createAnnotationMemo(
+      element,
+      annotation,
+      options
+    );
+  }
+
+  protected startGroupRecording() {
+    DefaultHistoryMemo.startGroupRecording();
+  }
+
+  /** Ends a group recording of history memo */
+  protected endGroupRecording() {
+    DefaultHistoryMemo.endGroupRecording();
+  }
+
+  protected static hydrateBase<T extends AnnotationTool>(
+    ToolClass: new () => T,
+    enabledElement: Types.IEnabledElement,
+    points: Types.Point3[],
+    options: {
+      annotationUID?: string;
+      toolInstance?: T;
+      referencedImageId?: string;
+      viewplaneNormal?: Types.Point3;
+      viewUp?: Types.Point3;
+    } = {}
+  ) {
+    if (!enabledElement) {
+      return null;
+    }
+
+    const { viewport } = enabledElement;
+    const FrameOfReferenceUID = viewport.getFrameOfReferenceUID();
+
+    const camera = viewport.getCamera();
+    const viewPlaneNormal = options.viewplaneNormal ?? camera.viewPlaneNormal;
+    const viewUp = options.viewUp ?? camera.viewUp;
+
+    // Create or use provided tool instance
+    const instance = options.toolInstance || new ToolClass();
+
+    let referencedImageId;
+    let finalViewPlaneNormal = viewPlaneNormal;
+    let finalViewUp = viewUp;
+
+    if (options.referencedImageId) {
+      // If the provided referencedImageId is not the same as the one calculated
+      // by the camera positions, only set the referencedImageId. The scenario
+      // here is that only a referencedImageId is given in the options, which
+      // does not match the current camera position, so the user is wanting to
+      // apply the annotation to a specific image.
+      referencedImageId = options.referencedImageId;
+      finalViewPlaneNormal = undefined;
+      finalViewUp = undefined;
+    } else {
+      // Only calculate the referenced image ID if not provided in options
+      if (viewport instanceof StackViewport) {
+        const closestImageIndex = csUtils.getClosestStackImageIndexForPoint(
+          points[0],
+          viewport
+        );
+
+        if (closestImageIndex !== undefined) {
+          referencedImageId = viewport.getImageIds()[closestImageIndex];
+        }
+      } else if (viewport instanceof BaseVolumeViewport) {
+        referencedImageId = instance.getReferencedImageId(
+          viewport,
+          points[0],
+          viewPlaneNormal,
+          viewUp
+        );
+      } else {
+        throw new Error('Unsupported viewport type');
+      }
+    }
+
+    return {
+      FrameOfReferenceUID,
+      referencedImageId,
+      viewPlaneNormal: finalViewPlaneNormal,
+      viewUp: finalViewUp,
+      instance,
+      viewport,
+    };
   }
 }
 

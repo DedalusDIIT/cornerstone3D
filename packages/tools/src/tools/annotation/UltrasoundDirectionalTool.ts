@@ -1,4 +1,4 @@
-import { Events } from '../../enums';
+import { ChangeTypes, Events } from '../../enums';
 import {
   getEnabledElement,
   utilities as csUtils,
@@ -17,16 +17,15 @@ import {
   triggerAnnotationCompleted,
   triggerAnnotationModified,
 } from '../../stateManagement/annotation/helpers/state';
-import { UltrasoundDirectionalAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type { UltrasoundDirectionalAnnotation } from '../../types/ToolSpecificAnnotationTypes';
 
 import {
   drawHandle as drawHandleSvg,
   drawLine as drawLineSvg,
   drawLinkedTextBox as drawLinkedTextBoxSvg,
 } from '../../drawingSvg';
-import { state } from '../../store';
+import { state } from '../../store/state';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
-import { roundNumber } from '../../utilities';
 import { distanceToPoint } from '../../utilities/math/point';
 import triggerAnnotationRenderForViewportIds from '../../utilities/triggerAnnotationRenderForViewportIds';
 
@@ -35,7 +34,7 @@ import {
   hideElementCursor,
 } from '../../cursors/elementCursor';
 
-import {
+import type {
   EventTypes,
   ToolHandle,
   TextBoxHandle,
@@ -45,8 +44,9 @@ import {
   Annotation,
   InteractionTypes,
 } from '../../types';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
 import { getCalibratedProbeUnitsAndValue } from '../../utilities/getCalibratedUnits';
+import { lineSegment } from '../../utilities/math';
 const { transformWorldToIndex } = csUtils;
 
 /**
@@ -55,14 +55,12 @@ const { transformWorldToIndex } = csUtils;
  * It automatically calculates the distance based on the relevant unit of measurement.
  */
 class UltrasoundDirectionalTool extends AnnotationTool {
-  static toolName;
+  static toolName = 'UltrasoundDirectionalTool';
 
-  public touchDragCallback: any;
-  public mouseDragCallback: any;
   startedDrawing: boolean;
-  _throttledCalculateCachedStats: any;
+  _throttledCalculateCachedStats: Function;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportIdsToRender: string[];
     handleIndex?: number;
     movingTextBox?: boolean;
@@ -117,7 +115,7 @@ class UltrasoundDirectionalTool extends AnnotationTool {
 
     const worldPos = currentPoints.world;
     const enabledElement = getEnabledElement(element);
-    const { viewport, renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
     if (!(viewport instanceof StackViewport)) {
       throw new Error(
@@ -128,47 +126,12 @@ class UltrasoundDirectionalTool extends AnnotationTool {
     hideElementCursor(element);
     this.isDrawing = true;
 
-    const camera = viewport.getCamera();
-    const { viewPlaneNormal, viewUp } = camera;
-
-    const referencedImageId = this.getReferencedImageId(
-      viewport,
-      worldPos,
-      viewPlaneNormal,
-      viewUp
+    const annotation = <UltrasoundDirectionalAnnotation>(
+      this.createAnnotation(evt, [
+        <Types.Point3>[...worldPos],
+        <Types.Point3>[...worldPos],
+      ])
     );
-
-    const FrameOfReferenceUID = viewport.getFrameOfReferenceUID();
-
-    const annotation = {
-      highlighted: true,
-      invalidated: true,
-      metadata: {
-        toolName: this.getToolName(),
-        viewPlaneNormal: <Types.Point3>[...viewPlaneNormal],
-        viewUp: <Types.Point3>[...viewUp],
-        FrameOfReferenceUID,
-        referencedImageId,
-      },
-      data: {
-        handles: {
-          points: [<Types.Point3>[...worldPos], <Types.Point3>[...worldPos]],
-          activeHandleIndex: null,
-          textBox: {
-            hasMoved: false,
-            worldPosition: <Types.Point3>[0, 0, 0],
-            worldBoundingBox: {
-              topLeft: <Types.Point3>[0, 0, 0],
-              topRight: <Types.Point3>[0, 0, 0],
-              bottomLeft: <Types.Point3>[0, 0, 0],
-              bottomRight: <Types.Point3>[0, 0, 0],
-            },
-          },
-        },
-        label: '',
-        cachedStats: {},
-      },
-    };
 
     addAnnotation(annotation, element);
 
@@ -189,7 +152,7 @@ class UltrasoundDirectionalTool extends AnnotationTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     return annotation;
   };
@@ -211,6 +174,34 @@ class UltrasoundDirectionalTool extends AnnotationTool {
     canvasCoords: Types.Point2,
     proximity: number
   ): boolean => {
+    const enabledElement = getEnabledElement(element);
+    const { viewport } = enabledElement;
+    const { data } = annotation;
+    const [point1, point2] = data.handles.points;
+    const canvasPoint1 = viewport.worldToCanvas(point1);
+    const canvasPoint2 = viewport.worldToCanvas(point2);
+
+    const line = {
+      start: {
+        x: canvasPoint1[0],
+        y: canvasPoint1[1],
+      },
+      end: {
+        x: canvasPoint2[0],
+        y: canvasPoint2[1],
+      },
+    };
+
+    const distanceToPoint = lineSegment.distanceToPoint(
+      [line.start.x, line.start.y],
+      [line.end.x, line.end.y],
+      [canvasCoords[0], canvasCoords[1]]
+    );
+
+    if (distanceToPoint <= proximity) {
+      return true;
+    }
+
     return false;
   };
 
@@ -261,7 +252,7 @@ class UltrasoundDirectionalTool extends AnnotationTool {
     const enabledElement = getEnabledElement(element);
     const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     evt.preventDefault();
   }
@@ -305,7 +296,7 @@ class UltrasoundDirectionalTool extends AnnotationTool {
       removeAnnotation(annotation.annotationUID);
     }
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     if (newAnnotation) {
       triggerAnnotationCompleted(annotation);
@@ -364,7 +355,7 @@ class UltrasoundDirectionalTool extends AnnotationTool {
     const enabledElement = getEnabledElement(element);
     const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
   };
 
   cancel = (element: HTMLDivElement) => {
@@ -381,13 +372,7 @@ class UltrasoundDirectionalTool extends AnnotationTool {
       annotation.highlighted = false;
       data.handles.activeHandleIndex = null;
 
-      const enabledElement = getEnabledElement(element);
-      const { renderingEngine } = enabledElement;
-
-      triggerAnnotationRenderForViewportIds(
-        renderingEngine,
-        viewportIdsToRender
-      );
+      triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
       if (newAnnotation) {
         triggerAnnotationCompleted(annotation);
@@ -796,7 +781,7 @@ class UltrasoundDirectionalTool extends AnnotationTool {
     for (let i = 0; i < targetIds.length; i++) {
       const targetId = targetIds[i];
 
-      const image = this.getTargetIdImage(targetId, renderingEngine);
+      const image = this.getTargetImageData(targetId);
 
       // If image does not exists for the targetId, skip. This can be due
       // to various reasons such as if the target was a volumeViewport, and
@@ -856,10 +841,13 @@ class UltrasoundDirectionalTool extends AnnotationTool {
       };
     }
 
+    const invalidated = annotation.invalidated;
     annotation.invalidated = false;
 
-    // Dispatching annotation modified
-    triggerAnnotationModified(annotation, element);
+    // Dispatching annotation modified only if it was invalidated
+    if (invalidated) {
+      triggerAnnotationModified(annotation, element, ChangeTypes.StatsUpdated);
+    }
 
     return cachedStats;
   }
@@ -870,26 +858,25 @@ function defaultGetTextLines(data, targetId, configuration): string[] {
   const { xValues, yValues, units, isUnitless, isHorizontal } = cachedStats;
 
   if (isUnitless) {
-    return [`${roundNumber(xValues[0])} px`];
+    return [`${csUtils.roundNumber(xValues[0])} px`];
   }
 
   if (configuration.displayBothAxesDistances) {
     const dist1 = Math.abs(xValues[1] - xValues[0]);
     const dist2 = Math.abs(yValues[1] - yValues[0]);
     return [
-      `${roundNumber(dist1)} ${units[0]}`,
-      `${roundNumber(dist2)} ${units[1]}`,
+      `${csUtils.roundNumber(dist1)} ${units[0]}`,
+      `${csUtils.roundNumber(dist2)} ${units[1]}`,
     ];
   }
 
   if (isHorizontal) {
     const dist = Math.abs(xValues[1] - xValues[0]);
-    return [`${roundNumber(dist)} ${units[0]}`];
+    return [`${csUtils.roundNumber(dist)} ${units[0]}`];
   } else {
     const dist = Math.abs(yValues[1] - yValues[0]);
-    return [`${roundNumber(dist)} ${units[1]}`];
+    return [`${csUtils.roundNumber(dist)} ${units[1]}`];
   }
 }
 
-UltrasoundDirectionalTool.toolName = 'UltrasoundDirectionalTool';
 export default UltrasoundDirectionalTool;

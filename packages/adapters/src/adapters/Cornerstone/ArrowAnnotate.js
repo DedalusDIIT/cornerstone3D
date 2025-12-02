@@ -13,8 +13,6 @@ class ArrowAnnotate {
         const { defaultState, SCOORDGroup, findingGroup } =
             MeasurementReport.getSetupMeasurementData(MeasurementGroup);
 
-        const text = findingGroup.ConceptCodeSequence.CodeMeaning;
-
         const { GraphicData } = SCOORDGroup;
 
         const state = {
@@ -51,7 +49,6 @@ class ArrowAnnotate {
                 }
             },
             invalidated: true,
-            text,
             visible: true
         };
 
@@ -61,7 +58,8 @@ class ArrowAnnotate {
     static getTID300RepresentationArguments(tool) {
         const points = [tool.handles.start, tool.handles.end];
 
-        let { finding, findingSites } = tool;
+        const { findingSites } = tool;
+        let { finding } = tool;
 
         const TID300RepresentationArguments = {
             points,
@@ -69,12 +67,12 @@ class ArrowAnnotate {
             findingSites: findingSites || []
         };
 
-        // If freetext finding isn't present, add it from the tool text.
+        // If freetext finding isn't present, add it from the tool label.
         if (!finding || finding.CodeValue !== CORNERSTONEFREETEXT) {
             finding = {
                 CodeValue: CORNERSTONEFREETEXT,
                 CodingSchemeDesignator: "CST4",
-                CodeMeaning: tool.text
+                CodeMeaning: tool.label
             };
         }
 

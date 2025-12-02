@@ -1,17 +1,15 @@
 import {
-  cache,
-  getEnabledElementByIds,
-  utilities as csUtils,
   VolumeViewport,
+  getEnabledElementByViewportId,
+  StackViewport,
 } from '@cornerstonejs/core';
 
-import * as SegmentationState from '../../../stateManagement/segmentation/segmentationState';
-import { SegmentationDataModifiedEventType } from '../../../types/EventTypes';
-import {
-  LabelmapSegmentationDataStack,
-  LabelmapSegmentationDataVolume,
-} from '../../../types/LabelmapTypes';
-import { getToolGroup } from '../../../store/ToolGroupManager';
+import type { SegmentationDataModifiedEventType } from '../../../types/EventTypes';
+import { SegmentationRepresentations } from '../../../enums';
+import { performVolumeLabelmapUpdate } from './performVolumeLabelmapUpdate';
+import { performStackLabelmapUpdate } from './performStackLabelmapUpdate';
+import { getSegmentation } from '../../../stateManagement/segmentation/getSegmentation';
+import { getViewportIdsWithSegmentation } from '../../../stateManagement/segmentation/getViewportIdsWithSegmentation';
 
 /** A callback function that is called when the segmentation data is modified which
  *  often is as a result of tool interactions e.g., scissors, eraser, etc.
@@ -21,125 +19,45 @@ const onLabelmapSegmentationDataModified = function (
 ): void {
   const { segmentationId, modifiedSlicesToUse } = evt.detail;
 
-  const { representationData, type } =
-    SegmentationState.getSegmentation(segmentationId);
+  const { representationData } = getSegmentation(segmentationId);
 
-  const toolGroupIds =
-    SegmentationState.getToolGroupIdsWithSegmentation(segmentationId);
+  const viewportIds = getViewportIdsWithSegmentation(segmentationId);
 
-  const labelmapRepresentationData = representationData[type];
-
-  if ('volumeId' in labelmapRepresentationData) {
-    // get the volume from cache, we need the openGLTexture to be updated to GPU
-    performVolumeLabelmapUpdate({
-      modifiedSlicesToUse,
-      representationData,
-      type,
-    });
-  }
-
-  if ('imageIdReferenceMap' in labelmapRepresentationData) {
-    // get the stack from cache, we need the imageData to be updated to GPU
-    performStackLabelmapUpdate({
-      toolGroupIds,
-      segmentationId,
-      representationData,
-      type,
-    });
-  }
-};
-
-function performVolumeLabelmapUpdate({
-  modifiedSlicesToUse,
-  representationData,
-  type,
-}) {
-  const segmentationVolume = cache.getVolume(
-    (representationData[type] as LabelmapSegmentationDataVolume).volumeId
-  );
-
-  if (!segmentationVolume) {
-    console.warn('segmentation not found in cache');
-    return;
-  }
-
-  const { imageData, vtkOpenGLTexture } = segmentationVolume;
-
-  // Update the texture for the volume in the GPU
-  let slicesToUpdate;
-  if (modifiedSlicesToUse && Array.isArray(modifiedSlicesToUse)) {
-    slicesToUpdate = modifiedSlicesToUse;
-  } else {
-    const numSlices = imageData.getDimensions()[2];
-    slicesToUpdate = [...Array(numSlices).keys()];
-  }
-
-  slicesToUpdate.forEach((i) => {
-    vtkOpenGLTexture.setUpdatedFrame(i);
+  const hasVolumeViewport = viewportIds.some((viewportId) => {
+    const { viewport } = getEnabledElementByViewportId(viewportId);
+    return viewport instanceof VolumeViewport;
   });
 
-  // Trigger modified on the imageData to update the image
-  imageData.modified();
-}
+  const hasStackViewport = viewportIds.some((viewportId) => {
+    const { viewport } = getEnabledElementByViewportId(viewportId);
+    return viewport instanceof StackViewport;
+  });
 
-function performStackLabelmapUpdate({
-  toolGroupIds,
-  segmentationId,
-  representationData,
-  type,
-}) {
-  toolGroupIds.forEach((toolGroupId) => {
-    const toolGroupSegmentationRepresentations =
-      SegmentationState.getSegmentationRepresentations(toolGroupId);
+  const hasBothStackAndVolume = hasVolumeViewport && hasStackViewport;
 
-    const toolGroup = getToolGroup(toolGroupId);
-    const viewportsInfo = toolGroup.getViewportsInfo();
+  viewportIds.forEach((viewportId) => {
+    const { viewport } = getEnabledElementByViewportId(viewportId);
 
-    toolGroupSegmentationRepresentations.forEach((representation) => {
-      if (representation.segmentationId !== segmentationId) {
-        return;
-      }
+    if (viewport instanceof VolumeViewport) {
+      // For combined stack and volume scenarios in the rendering engine, updating only affected
+      // slices is not ideal. Stack indices (e.g., 0 for just one image) don't
+      // correspond to image indices in the volume. In this case, we update all slices.
+      // However, for volume-only scenarios, we update only affected slices.
 
-      viewportsInfo.forEach(({ viewportId, renderingEngineId }) => {
-        const viewport = getEnabledElementByIds(
-          viewportId,
-          renderingEngineId
-        ).viewport;
-
-        if (viewport instanceof VolumeViewport) {
-          return;
-        }
-
-        const actorEntry = viewport.getActor(
-          representation.segmentationRepresentationUID
-        );
-
-        if (!actorEntry) {
-          return;
-        }
-
-        const currentImageId = viewport.getCurrentImageId();
-
-        const segImageData = actorEntry.actor.getMapper().getInputData();
-
-        const { imageIdReferenceMap } = representationData[
-          type
-        ] as LabelmapSegmentationDataStack;
-
-        const currentSegmentationImageId =
-          imageIdReferenceMap.get(currentImageId);
-
-        const segmentationImage = cache.getImage(currentSegmentationImageId);
-        segImageData.modified();
-
-        // update the cache with the new image data
-        csUtils.updateVTKImageDataWithCornerstoneImage(
-          segImageData,
-          segmentationImage
-        );
+      performVolumeLabelmapUpdate({
+        modifiedSlicesToUse: hasBothStackAndVolume ? [] : modifiedSlicesToUse,
+        representationData,
+        type: SegmentationRepresentations.Labelmap,
       });
-    });
+    }
+
+    if (viewport instanceof StackViewport) {
+      performStackLabelmapUpdate({
+        viewportIds,
+        segmentationId,
+      });
+    }
   });
-}
+};
 
 export default onLabelmapSegmentationDataModified;

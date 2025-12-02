@@ -1,11 +1,9 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   setVolumesForViewports,
   volumeLoader,
-  ProgressiveRetrieveImages,
-  utilities,
 } from '@cornerstonejs/core';
 import {
   initDemo,
@@ -27,10 +25,10 @@ console.warn(
 );
 
 const {
-  SegmentationDisplayTool,
   ToolGroupManager,
   Enums: csToolsEnums,
   segmentation,
+  BrushTool,
   utilities: cstUtils,
 } = cornerstoneTools;
 
@@ -92,9 +90,62 @@ instructions.innerText = `
 
 content.append(instructions);
 
+const interpolationTools = new Map<string, any>();
+const previewColors = {
+  0: [255, 255, 255, 128],
+  1: [0, 255, 255, 192],
+  2: [255, 0, 255, 255],
+};
+
+const configuration = {
+  preview: {
+    enabled: true,
+    previewColors,
+  },
+};
+
+const viewportIds = ['CT_AXIAL', 'CT_SAGITTAL', 'CT_CORONAL'];
+const viewportId1 = viewportIds[0];
+const viewportId2 = viewportIds[1];
+const viewportId3 = viewportIds[2];
+
+const defaultThresholdOption = [...labelmapTools.thresholdOptions.keys()][5];
+const thresholdArgs = labelmapTools.thresholdOptions.get(
+  defaultThresholdOption
+);
+
+interpolationTools.set('ThresholdSphereIsland', {
+  baseTool: BrushTool.toolName,
+  configuration: {
+    ...configuration,
+    activeStrategy: 'THRESHOLD_INSIDE_SPHERE_WITH_ISLAND_REMOVAL',
+    threshold: thresholdArgs,
+  },
+});
+
+interpolationTools.set('ThresholdCircle', {
+  baseTool: BrushTool.toolName,
+  configuration: {
+    ...configuration,
+    activeStrategy: 'THRESHOLD_INSIDE_CIRCLE',
+    threshold: thresholdArgs,
+  },
+});
+
+interpolationTools.set('ThresholdSphere', {
+  baseTool: BrushTool.toolName,
+  configuration: {
+    ...configuration,
+    activeStrategy: 'THRESHOLD_INSIDE_SPHERE',
+    threshold: thresholdArgs,
+  },
+});
+
+const optionsValues = [...interpolationTools.keys()];
+
 // ============================= //
 addDropdownToToolbar({
-  options: { map: labelmapTools.toolMap },
+  options: { values: optionsValues, defaultValue: BrushTool.toolName },
   onSelectedValueChange: (nameAsStringOrNumber) => {
     const name = String(nameAsStringOrNumber);
     const toolGroup = ToolGroupManager.getToolGroup(toolGroupId);
@@ -117,17 +168,13 @@ addDropdownToToolbar({
     map: labelmapTools.thresholdOptions,
   },
   onSelectedValueChange: (name, thresholdArgs) => {
-    segmentationUtils.setBrushThresholdForToolGroup(
-      toolGroupId,
-      thresholdArgs.threshold,
-      thresholdArgs
-    );
+    segmentationUtils.setBrushThresholdForToolGroup(toolGroupId, thresholdArgs);
   },
 });
 
 addSliderToToolbar({
   title: 'Brush Size',
-  range: [5, 50],
+  range: [5, 100],
   defaultValue: 25,
   onSelectedValueChange: (valueAsStringOrNumber) => {
     const value = Number(valueAsStringOrNumber);
@@ -161,8 +208,11 @@ addButtonToToolbar({
 
 async function addSegmentationsToState() {
   // Create a segmentation of the same resolution as the source data
-  await volumeLoader.createAndCacheDerivedSegmentationVolume(volumeId, {
+  volumeLoader.createAndCacheDerivedLabelmapVolume(volumeId, {
     volumeId: segmentationId,
+    // The following doesn't quite work yet
+    // TODO, allow RLE to be used instead of scalars.
+    voxelRepresentation: Enums.VoxelManagerEnum.RLE,
   });
 
   // Add the segmentations to state
@@ -189,16 +239,37 @@ async function run() {
   // Init Cornerstone and related libraries
   await initDemo();
 
-  utilities.imageRetrieveMetadataProvider.add(
-    'volume',
-    ProgressiveRetrieveImages.interleavedRetrieveStages
-  );
+  // Add tools to Cornerstone3D
+  cornerstoneTools.addTool(BrushTool);
 
   // Define tool groups to add the segmentation display tool to
   const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
-  addManipulationBindings(toolGroup, { toolMap: labelmapTools.toolMap });
-  cornerstoneTools.addTool(SegmentationDisplayTool);
-  toolGroup.addTool(SegmentationDisplayTool.toolName);
+
+  // Manipulation Tools
+  addManipulationBindings(toolGroup);
+
+  // Segmentation Tools
+  toolGroup.addTool(BrushTool.toolName);
+
+  for (const [toolName, config] of interpolationTools.entries()) {
+    if (config.baseTool) {
+      toolGroup.addToolInstance(
+        toolName,
+        config.baseTool,
+        config.configuration
+      );
+    } else {
+      toolGroup.addTool(toolName, config.configuration);
+    }
+    if (config.passive) {
+      // This can be applied during add/remove contours
+      toolGroup.setToolPassive(toolName);
+    }
+  }
+
+  toolGroup.setToolActive(interpolationTools.keys().next().value, {
+    bindings: [{ mouseButton: MouseBindings.Primary }],
+  });
 
   // Get Cornerstone imageIds for the source data and fetch metadata into RAM
   const imageIds = await createImageIdsAndCacheMetaData({
@@ -207,7 +278,7 @@ async function run() {
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
     wadoRsRoot:
-      getLocalUrl() || 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+      getLocalUrl() || 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Define a volume in memory
@@ -221,11 +292,6 @@ async function run() {
   // Instantiate a rendering engine
   const renderingEngineId = 'myRenderingEngine';
   const renderingEngine = new RenderingEngine(renderingEngineId);
-
-  // Create the viewports
-  const viewportId1 = 'CT_AXIAL';
-  const viewportId2 = 'CT_SAGITTAL';
-  const viewportId3 = 'CT_CORONAL';
 
   const viewportInputArray = [
     {
@@ -273,18 +339,16 @@ async function run() {
     [viewportId1, viewportId2, viewportId3]
   );
 
-  segmentation.segmentIndex.setActiveSegmentIndex(segmentationId, 1);
-
+  const seg = [{ segmentationId }];
   // Add the segmentation representation to the toolgroup
-  await segmentation.addSegmentationRepresentations(toolGroupId, [
-    {
-      segmentationId,
-      type: csToolsEnums.SegmentationRepresentations.Labelmap,
-    },
-  ]);
+  await segmentation.addLabelmapRepresentationToViewportMap({
+    [viewportId1]: seg,
+    [viewportId2]: seg,
+    [viewportId3]: seg,
+  });
 
   // Render the image
-  renderingEngine.renderViewports([viewportId1, viewportId2, viewportId3]);
+  renderingEngine.render();
 }
 
 run();

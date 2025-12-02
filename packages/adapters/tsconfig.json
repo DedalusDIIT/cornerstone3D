@@ -1,15 +1,14 @@
 {
-    "compilerOptions": {
-        "declaration": true,
-        "declarationDir": "./dist/types",
-        "emitDeclarationOnly": true
-    },
-    "exclude": [
-        "node_modules",
-        "dist",
-        "examples",
-        "old-examples"
-    ]
-
-
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist/esm",
+    "rootDir": "./src"
+  },
+  "include": [
+    "./src/**/*",
+    "./test/**/*",
+    "./jest.config.js",
+    "../core/src/types/InstanceTypes.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
 }

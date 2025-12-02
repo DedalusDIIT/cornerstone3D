@@ -1,103 +1,88 @@
 import { utilities } from "dcmjs";
-import CORNERSTONE_3D_TAG from "./cornerstone3DTag";
+
+import { toScoords } from "../helpers";
 import MeasurementReport from "./MeasurementReport";
+import BaseAdapter3D from "./BaseAdapter3D";
 
 const { Polyline: TID300Polyline } = utilities.TID300;
 
-const TOOLTYPE = "RectangleROI";
-const trackingIdentifierTextValue = `${CORNERSTONE_3D_TAG}:${TOOLTYPE}`;
+export class RectangleROI extends BaseAdapter3D {
+    static {
+        this.init("RectangleROI", TID300Polyline);
+        // Register using the Cornerstone 1.x name so this tool is used to load it
+        this.registerLegacy();
+        this.registerType("DCM:111030", "POLYLINE", 4);
+        this.registerType("DCM:111030", "POLYLINE", 5);
+    }
 
-class RectangleROI {
-    public static toolType = TOOLTYPE;
-    public static utilityToolType = TOOLTYPE;
-    public static TID300Representation = TID300Polyline;
-
-    public static isValidCornerstoneTrackingIdentifier = TrackingIdentifier => {
-        if (!TrackingIdentifier.includes(":")) {
-            return false;
-        }
-
-        const [cornerstone3DTag, toolType] = TrackingIdentifier.split(":");
-
-        if (cornerstone3DTag !== CORNERSTONE_3D_TAG) {
-            return false;
-        }
-
-        return toolType === TOOLTYPE;
-    };
+    public static isValidMeasurement(measurement) {
+        const graphicItem = this.getGraphicItem(measurement);
+        const pointsCount = this.getPointsCount(graphicItem);
+        return (
+            this.getGraphicType(graphicItem) === "POLYLINE" &&
+            (pointsCount === 4 || pointsCount === 5)
+        );
+    }
 
     public static getMeasurementData(
         MeasurementGroup,
         sopInstanceUIDToImageIdMap,
-        imageToWorldCoords,
         metadata
     ) {
-        const { defaultState, NUMGroup, SCOORDGroup, ReferencedFrameNumber } =
+        const { state, worldCoords, referencedImageId, ReferencedFrameNumber } =
             MeasurementReport.getSetupMeasurementData(
                 MeasurementGroup,
                 sopInstanceUIDToImageIdMap,
                 metadata,
-                RectangleROI.toolType
+                this.toolType
             );
 
-        const referencedImageId =
-            defaultState.annotation.metadata.referencedImageId;
+        // If the rectangle is closed (5 points with first point repeated), remove the duplicate
+        const points =
+            worldCoords.length === 5 ? worldCoords.slice(0, 4) : worldCoords;
 
-        const { GraphicData } = SCOORDGroup;
-        const worldCoords = [];
-        for (let i = 0; i < GraphicData.length; i += 2) {
-            const point = imageToWorldCoords(referencedImageId, [
-                GraphicData[i],
-                GraphicData[i + 1]
-            ]);
-            worldCoords.push(point);
-        }
-
-        const state = defaultState;
-
+        const areaGroup = MeasurementGroup.ContentSequence.find(
+            g =>
+                g.ValueType === "NUM" &&
+                g.ConceptNameCodeSequence[0].CodeMeaning === "Area"
+        );
+        const cachedStats = referencedImageId
+            ? {
+                  [`imageId:${referencedImageId}`]: {
+                      area:
+                          areaGroup?.MeasuredValueSequence?.[0]?.NumericValue ||
+                          0,
+                      areaUnit:
+                          areaGroup?.MeasuredValueSequence?.[0]
+                              ?.MeasurementUnitsCodeSequence?.CodeValue
+                  }
+              }
+            : {};
         state.annotation.data = {
+            ...state.annotation.data,
             handles: {
-                points: [
-                    worldCoords[0],
-                    worldCoords[1],
-                    worldCoords[3],
-                    worldCoords[2]
-                ],
-                activeHandleIndex: 0,
-                textBox: {
-                    hasMoved: false
-                }
+                ...state.annotation.data.handles,
+                points: [points[0], points[1], points[3], points[2]]
             },
-            cachedStats: {
-                [`imageId:${referencedImageId}`]: {
-                    area: NUMGroup
-                        ? NUMGroup.MeasuredValueSequence.NumericValue
-                        : null
-                }
-            },
+            cachedStats,
             frameNumber: ReferencedFrameNumber
         };
-
         return state;
     }
 
-    static getTID300RepresentationArguments(tool, worldToImageCoords) {
+    static getTID300RepresentationArguments(tool, is3DMeasurement = false) {
         const { data, finding, findingSites, metadata } = tool;
-        const { cachedStats = {}, handles } = data;
 
         const { referencedImageId } = metadata;
+        const scoordProps = {
+            is3DMeasurement,
+            referencedImageId
+        };
 
-        if (!referencedImageId) {
-            throw new Error(
-                "CobbAngle.getTID300RepresentationArguments: referencedImageId is not defined"
-            );
-        }
+        const corners = toScoords(scoordProps, data.handles.points);
 
-        const corners = handles.points.map(point =>
-            worldToImageCoords(referencedImageId, point)
-        );
-
-        const { area, perimeter } = cachedStats;
+        const { area, perimeter } =
+            data.cachedStats[`imageId:${referencedImageId}`] || {};
 
         return {
             points: [
@@ -109,13 +94,12 @@ class RectangleROI {
             ],
             area,
             perimeter,
-            trackingIdentifierTextValue,
+            trackingIdentifierTextValue: this.trackingIdentifierTextValue,
             finding,
-            findingSites: findingSites || []
+            findingSites: findingSites || [],
+            use3DSpatialCoordinates: is3DMeasurement
         };
     }
 }
-
-MeasurementReport.registerTool(RectangleROI);
 
 export default RectangleROI;

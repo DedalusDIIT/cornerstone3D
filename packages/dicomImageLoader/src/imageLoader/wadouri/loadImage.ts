@@ -1,17 +1,19 @@
-import { DataSet } from 'dicom-parser';
-import { Types } from '@cornerstonejs/core';
+import type { DataSet } from 'dicom-parser';
+import type { Types } from '@cornerstonejs/core';
+import { Enums } from '@cornerstonejs/core';
 import createImage from '../createImage';
 import { xhrRequest } from '../internal/index';
 import dataSetCacheManager from './dataSetCacheManager';
-import {
+import type {
   LoadRequestFunction,
   DICOMLoaderIImage,
   DICOMLoaderImageOptions,
-  ImageFrame,
 } from '../../types';
 import getPixelData from './getPixelData';
 import loadFileRequest from './loadFileRequest';
 import parseImageId from './parseImageId';
+
+const { ImageQualityStatus } = Enums;
 
 // add a decache callback function to clear out our dataSetCacheManager
 function addDecache(imageLoadObject: Types.IImageLoadObject, imageId: string) {
@@ -78,6 +80,7 @@ function loadImageFromPromise(
 
             image.loadTimeInMS = loadEnd - start;
             image.totalTimeInMS = end - start;
+            image.imageQualityStatus = ImageQualityStatus.FULL_RESOLUTION;
             if (
               callbacks !== undefined &&
               callbacks.imageDoneCallback !== undefined
@@ -116,11 +119,11 @@ function loadImageFromDataSet(
 ): Types.IImageLoadObject {
   const start = new Date().getTime();
 
-  const promise = new Promise<DICOMLoaderIImage | ImageFrame>(
+  const promise = new Promise<DICOMLoaderIImage | Types.IImageFrame>(
     (resolve, reject) => {
       const loadEnd = new Date().getTime();
 
-      let imagePromise: Promise<DICOMLoaderIImage | ImageFrame>;
+      let imagePromise: Promise<DICOMLoaderIImage | Types.IImageFrame>;
 
       try {
         const pixelData = getPixelData(dataSet, frame);
@@ -141,27 +144,28 @@ function loadImageFromDataSet(
         image = image as DICOMLoaderIImage;
 
         image.data = dataSet;
-        image.sharedCacheKey = sharedCacheKey;
+        // image.sharedCacheKey = sharedCacheKey;
         const end = new Date().getTime();
 
         image.loadTimeInMS = loadEnd - start;
         image.totalTimeInMS = end - start;
+        image.imageQualityStatus = ImageQualityStatus.FULL_RESOLUTION;
         resolve(image);
       }, reject);
     }
   );
 
   return {
-    promise: promise as Promise<any>,
+    promise: promise as Promise<Types.IImage>,
     cancelFn: undefined,
   };
 }
 
 function getLoaderForScheme(scheme: string): LoadRequestFunction {
   if (scheme === 'dicomweb' || scheme === 'wadouri' || scheme === 'wadors') {
-    return xhrRequest;
+    return xhrRequest as LoadRequestFunction;
   } else if (scheme === 'dicomfile') {
-    return loadFileRequest;
+    return loadFileRequest as LoadRequestFunction;
   }
 }
 
@@ -191,6 +195,7 @@ function loadImage(
     /**
      * @todo The arguments to the dataSetCacheManager below are incorrect.
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dataSet: DataSet = (dataSetCacheManager as any).get(
       parsedImageId.url,
       schemeLoader,

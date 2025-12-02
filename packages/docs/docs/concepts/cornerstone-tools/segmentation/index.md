@@ -1,6 +1,7 @@
 ---
 id: index
 title: Segmentations
+summary: Core framework for medical image segmentation that decouples the underlying segmentation data from its visual representations like labelmaps, contours, and surfaces
 ---
 
 import DocCardList from '@theme/DocCardList';
@@ -22,20 +23,6 @@ Similar relationship structure has been adapted in popular medical imaging softw
 such as [3D Slicer](https://www.slicer.org/) with the addition of [polymorph segmentation](https://github.com/PerkLab/PolySeg).
 :::
 
-## ToolGroup Specific Representations
-
-Previously in `Cornerstone (legacy)` we applied `Segmentations` to elements.
-This had its own limitations, such as: repetitive creation of `Segmentations` for each viewport
-(ct-axial, ct-sagittal, and ct-coronal). We have changed this to apply a `Segmentation Representation`
-to a `ToolGroup` which accordingly applies to all viewports.
-
-## Segmentation Display
-
-`Cornerstone3DTools` treats segmentations the same way as any other Tool. For instance,
-the `SegmentationDisplayTool` should be added via `addTools` and also be added to the `ToolGroup`
-whose viewports you want to display the segmentation on. We will read more
-about this in the next section.
-
 ## API
 
 `Segmentation` related functions and classes are available in the `segmentation` module.
@@ -44,13 +31,13 @@ about this in the next section.
 import { segmentation } from '@cornerstonejs/tools';
 
 // segmentation state holding all segmentations and their toolGroup specific representations
-segmentations.state.XYZ;
+segmentation.state.XYZ;
 
 // active segmentation methods (set/get)
-segmentations.activeSegmentation.XYZ;
+segmentation.activeSegmentation.XYZ;
 
 // locking for a segment index (set/get)
-segmentations.locking.XYZ;
+segmentation.locking.XYZ;
 
 // segment index manipulations (set/get)
 segmentations.segmentIndex.XYZ;

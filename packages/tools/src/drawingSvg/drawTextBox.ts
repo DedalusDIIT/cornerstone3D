@@ -1,5 +1,5 @@
 import type { Types } from '@cornerstonejs/core';
-import { SVGDrawingHelper } from '../types';
+import type { SVGDrawingHelper } from '../types';
 
 import _getHash from './_getHash';
 import setAttributesIfNecessary from './setAttributesIfNecessary';
@@ -52,12 +52,26 @@ function _drawTextGroup(
   textUID: string,
   textLines: Array<string> = [''],
   position: Types.Point2,
-  options: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  options: Record<string, any>
 ): SVGRect {
-  const { padding, color, fontFamily, fontSize, background } = options;
+  const {
+    padding,
+    color,
+    fontFamily,
+    fontSize,
+    background,
+    textBoxBorderRadius,
+    textBoxMargin,
+  } = options;
 
   let textGroupBoundingBox;
   const [x, y] = [position[0] + padding, position[1] + padding];
+  const backgroundStyles = {
+    color: background,
+    textBoxBorderRadius,
+    textBoxMargin,
+  };
   const svgns = 'http://www.w3.org/2000/svg';
   const svgNodeHash = _getHash(annotationUID, 'text', textUID);
   const existingTextGroup = svgDrawingHelper.getSvgNode(svgNodeHash);
@@ -103,11 +117,18 @@ function _drawTextGroup(
     setAttributesIfNecessary(textAttributes, textElement);
     setAttributesIfNecessary(textGroupAttributes, existingTextGroup);
 
-    textGroupBoundingBox = _drawTextBackground(existingTextGroup, background);
+    // Add data attribute for annotation UID
+    existingTextGroup.setAttribute('data-annotation-uid', annotationUID);
+    textGroupBoundingBox = _drawTextBackground(
+      existingTextGroup,
+      backgroundStyles
+    );
 
     svgDrawingHelper.setNodeTouched(svgNodeHash);
   } else {
     const textGroup = document.createElementNS(svgns, 'g');
+    // Add data attribute for annotation UID
+    textGroup.setAttribute('data-annotation-uid', annotationUID);
 
     textGroup.setAttribute('transform', `translate(${x} ${y})`);
 
@@ -122,7 +143,7 @@ function _drawTextGroup(
 
     textGroup.appendChild(textElement);
     svgDrawingHelper.appendNode(textGroup, svgNodeHash);
-    textGroupBoundingBox = _drawTextBackground(textGroup, background);
+    textGroupBoundingBox = _drawTextBackground(textGroup, backgroundStyles);
   }
 
   // We translate the group using `position`
@@ -138,7 +159,8 @@ function _drawTextGroup(
 
 function _createTextElement(
   svgDrawingHelper: SVGDrawingHelper,
-  options: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  options: Record<string, any>
 ): SVGElement {
   const { color, fontFamily, fontSize } = options;
   const svgns = 'http://www.w3.org/2000/svg';
@@ -148,13 +170,13 @@ function _createTextElement(
   const dropShadowStyle = `filter:url(#shadow-${svgDrawingHelper.svgLayerElement.id});`;
   const combinedStyle = `${noSelectStyle}${dropShadowStyle}`;
 
-  // font-size="100"
   textElement.setAttribute('x', '0');
   textElement.setAttribute('y', '0');
   textElement.setAttribute('fill', color);
   textElement.setAttribute('font-family', fontFamily);
   textElement.setAttribute('font-size', fontSize);
   textElement.setAttribute('style', combinedStyle);
+  textElement.setAttribute('pointer-events', 'visible');
 
   return textElement;
 }
@@ -163,10 +185,6 @@ function _createTextSpan(text): SVGElement {
   const svgns = 'http://www.w3.org/2000/svg';
   const textSpanElement = document.createElementNS(svgns, 'tspan');
 
-  // TODO: centerX
-  // (parent width / 2) - my width
-  // TODO: centerY
-
   textSpanElement.setAttribute('x', '0');
   textSpanElement.setAttribute('dy', '1.2em');
   textSpanElement.textContent = text;
@@ -174,8 +192,14 @@ function _createTextSpan(text): SVGElement {
   return textSpanElement;
 }
 
-function _drawTextBackground(group: SVGGElement, color: string) {
+function _drawTextBackground(group: SVGGElement, backgroundStyles) {
+  const {
+    color,
+    textBoxBorderRadius = 0,
+    textBoxMargin = 0,
+  } = backgroundStyles;
   let element = group.querySelector('rect.background');
+  const textElement = group.querySelector('text').getBBox();
 
   // If we have no background color, remove any element that exists and return
   // the bounding box of the text
@@ -195,15 +219,29 @@ function _drawTextBackground(group: SVGGElement, color: string) {
   }
 
   // Get the text groups's bounding box and use it to draw the background rectangle
+  // use the text box dimensions to apply the textBoxMargin
   const bBox = group.getBBox();
 
   const attributes = {
     x: `${bBox.x}`,
     y: `${bBox.y}`,
-    width: `${bBox.width}`,
-    height: `${bBox.height}`,
+    width: `${textElement.width + Number(textBoxMargin) * 2}`,
+    height: `${textElement.height + Number(textBoxMargin) * 2}`,
     fill: color,
+    rx: textBoxBorderRadius,
+    ry: textBoxBorderRadius,
   };
+
+  if (textBoxMargin) {
+    // Add offset to the text spans to centre them within the textBoxMargin
+    const tSpans = Array.from(
+      group.querySelector('text').querySelectorAll('tspan')
+    );
+    tSpans.forEach((tspan, i) => {
+      i === 0 && tspan.setAttribute('y', textBoxMargin);
+      tspan.setAttribute('x', textBoxMargin);
+    });
+  }
 
   setAttributesIfNecessary(attributes, element);
 

@@ -1,5 +1,5 @@
 import { vec3 } from 'gl-matrix';
-import { Events } from '../../enums';
+import { ChangeTypes, Events } from '../../enums';
 import { getEnabledElement } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 
@@ -25,7 +25,7 @@ import {
   drawLinkedTextBox as drawLinkedTextBoxSvg,
   drawTextBox as drawTextBoxSvg,
 } from '../../drawingSvg';
-import { state } from '../../store';
+import { state } from '../../store/state';
 import { getViewportIdsWithToolToRender } from '../../utilities/viewportFilters';
 import { getTextBoxCoordsCanvas } from '../../utilities/drawing';
 import triggerAnnotationRenderForViewportIds from '../../utilities/triggerAnnotationRenderForViewportIds';
@@ -35,7 +35,7 @@ import {
   hideElementCursor,
 } from '../../cursors/elementCursor';
 
-import {
+import type {
   EventTypes,
   ToolHandle,
   TextBoxHandle,
@@ -43,19 +43,20 @@ import {
   ToolProps,
   InteractionTypes,
   SVGDrawingHelper,
+  Annotation,
 } from '../../types';
-import { CobbAngleAnnotation } from '../../types/ToolSpecificAnnotationTypes';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
+import type { CobbAngleAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
+import { isAnnotationVisible } from '../../stateManagement/annotation/annotationVisibility';
+import { getStyleProperty } from '../../stateManagement/annotation/config/helpers';
 
 class CobbAngleTool extends AnnotationTool {
-  static toolName;
+  static toolName = 'CobbAngle';
 
-  public touchDragCallback: any;
-  public mouseDragCallback: any;
   angleStartedNotYetCompleted: boolean;
-  _throttledCalculateCachedStats: any;
+  _throttledCalculateCachedStats: Function;
   editData: {
-    annotation: any;
+    annotation: Annotation;
     viewportIdsToRender: string[];
     handleIndex?: number;
     movingTextBox?: boolean;
@@ -107,54 +108,16 @@ class CobbAngleTool extends AnnotationTool {
     const eventDetail = evt.detail;
     const { currentPoints, element } = eventDetail;
     const worldPos = currentPoints.world;
-    const enabledElement = getEnabledElement(element);
-    const { viewport, renderingEngine } = enabledElement;
 
     hideElementCursor(element);
     this.isDrawing = true;
 
-    const camera = viewport.getCamera();
-    const { viewPlaneNormal, viewUp } = camera;
-
-    const referencedImageId = this.getReferencedImageId(
-      viewport,
-      worldPos,
-      viewPlaneNormal,
-      viewUp
+    const annotation = <CobbAngleAnnotation>(
+      this.createAnnotation(evt, [
+        <Types.Point3>[...worldPos],
+        <Types.Point3>[...worldPos],
+      ])
     );
-
-    const FrameOfReferenceUID = viewport.getFrameOfReferenceUID();
-
-    const annotation = {
-      highlighted: true,
-      invalidated: true,
-      metadata: {
-        toolName: this.getToolName(),
-        viewPlaneNormal: <Types.Point3>[...viewPlaneNormal],
-        viewUp: <Types.Point3>[...viewUp],
-        FrameOfReferenceUID,
-        referencedImageId,
-        ...viewport.getViewReference({ points: [worldPos] }),
-      },
-      data: {
-        handles: {
-          points: [<Types.Point3>[...worldPos], <Types.Point3>[...worldPos]],
-          activeHandleIndex: null,
-          textBox: {
-            hasMoved: false,
-            worldPosition: <Types.Point3>[0, 0, 0],
-            worldBoundingBox: {
-              topLeft: <Types.Point3>[0, 0, 0],
-              topRight: <Types.Point3>[0, 0, 0],
-              bottomLeft: <Types.Point3>[0, 0, 0],
-              bottomRight: <Types.Point3>[0, 0, 0],
-            },
-          },
-        },
-        label: '',
-        cachedStats: {},
-      },
-    };
 
     addAnnotation(annotation, element);
 
@@ -175,7 +138,7 @@ class CobbAngleTool extends AnnotationTool {
 
     evt.preventDefault();
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     return annotation;
   };
@@ -254,7 +217,7 @@ class CobbAngleTool extends AnnotationTool {
 
     hideElementCursor(element);
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     evt.preventDefault();
   };
@@ -296,15 +259,12 @@ class CobbAngleTool extends AnnotationTool {
 
     hideElementCursor(element);
 
-    const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
-
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     evt.preventDefault();
   }
 
-  _mouseUpCallback = (
+  _endCallback = (
     evt: EventTypes.MouseUpEventType | EventTypes.MouseClickEventType
   ) => {
     const eventDetail = evt.detail;
@@ -319,6 +279,8 @@ class CobbAngleTool extends AnnotationTool {
       // of click and drag
       return;
     }
+
+    this.doneEditMemo();
 
     // If preventing new measurement means we are in the middle of an existing measurement
     // we shouldn't deactivate modify or draw
@@ -347,7 +309,7 @@ class CobbAngleTool extends AnnotationTool {
       removeAnnotation(annotation.annotationUID);
     }
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     if (newAnnotation) {
       triggerAnnotationCompleted(annotation);
@@ -403,7 +365,7 @@ class CobbAngleTool extends AnnotationTool {
     this.editData.handleIndex = data.handles.points.length - 1;
   };
 
-  _mouseDragCallback = (
+  _dragCallback = (
     evt: EventTypes.MouseDragEventType | EventTypes.MouseMoveEventType
   ) => {
     this.isDrawing = true;
@@ -417,7 +379,10 @@ class CobbAngleTool extends AnnotationTool {
       movingTextBox,
       isNearFirstLine,
       isNearSecondLine,
+      newAnnotation,
     } = this.editData;
+    this.createMemo(element, annotation, { newAnnotation });
+
     const { data } = annotation;
 
     if (movingTextBox) {
@@ -474,7 +439,15 @@ class CobbAngleTool extends AnnotationTool {
     const enabledElement = getEnabledElement(element);
     const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
+
+    if (annotation.invalidated) {
+      triggerAnnotationModified(
+        annotation,
+        element,
+        ChangeTypes.HandlesUpdated
+      );
+    }
   };
 
   cancel = (element: HTMLDivElement) => {
@@ -502,7 +475,7 @@ class CobbAngleTool extends AnnotationTool {
     const enabledElement = getEnabledElement(element);
     const { renderingEngine } = enabledElement;
 
-    triggerAnnotationRenderForViewportIds(renderingEngine, viewportIdsToRender);
+    triggerAnnotationRenderForViewportIds(viewportIdsToRender);
 
     if (newAnnotation) {
       triggerAnnotationCompleted(annotation);
@@ -518,19 +491,32 @@ class CobbAngleTool extends AnnotationTool {
 
     element.addEventListener(
       Events.MOUSE_UP,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
     element.addEventListener(
       Events.MOUSE_DRAG,
-      this._mouseDragCallback as EventListener
+      this._dragCallback as EventListener
     );
     element.addEventListener(
       Events.MOUSE_CLICK,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
-
-    // element.addEventListener(Events.TOUCH_END, this._mouseUpCallback)
-    // element.addEventListener(Events.TOUCH_DRAG, this._mouseDragCallback)
+    element.addEventListener(
+      Events.TOUCH_END,
+      this._endCallback as EventListener
+    );
+    element.addEventListener(
+      Events.TOUCH_DRAG,
+      this._dragCallback as EventListener
+    );
+    element.addEventListener(
+      Events.TOUCH_START,
+      this._mouseDownCallback as EventListener
+    );
+    element.addEventListener(
+      Events.TOUCH_TAP,
+      this._endCallback as EventListener
+    );
   };
 
   _deactivateModify = (element: HTMLDivElement) => {
@@ -538,19 +524,32 @@ class CobbAngleTool extends AnnotationTool {
 
     element.removeEventListener(
       Events.MOUSE_UP,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
     element.removeEventListener(
       Events.MOUSE_DRAG,
-      this._mouseDragCallback as EventListener
+      this._dragCallback as EventListener
     );
     element.removeEventListener(
       Events.MOUSE_CLICK,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
-
-    // element.removeEventListener(Events.TOUCH_END, this._mouseUpCallback)
-    // element.removeEventListener(Events.TOUCH_DRAG, this._mouseDragCallback)
+    element.removeEventListener(
+      Events.TOUCH_END,
+      this._endCallback as EventListener
+    );
+    element.removeEventListener(
+      Events.TOUCH_DRAG,
+      this._dragCallback as EventListener
+    );
+    element.removeEventListener(
+      Events.TOUCH_START,
+      this._mouseDownCallback as EventListener
+    );
+    element.removeEventListener(
+      Events.TOUCH_TAP,
+      this._endCallback as EventListener
+    );
   };
 
   _activateDraw = (element: HTMLDivElement) => {
@@ -558,27 +557,40 @@ class CobbAngleTool extends AnnotationTool {
 
     element.addEventListener(
       Events.MOUSE_UP,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
     element.addEventListener(
       Events.MOUSE_DRAG,
-      this._mouseDragCallback as EventListener
+      this._dragCallback as EventListener
     );
     element.addEventListener(
       Events.MOUSE_MOVE,
-      this._mouseDragCallback as EventListener
+      this._dragCallback as EventListener
     );
     element.addEventListener(
       Events.MOUSE_CLICK,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
     element.addEventListener(
       Events.MOUSE_DOWN,
       this._mouseDownCallback as EventListener
     );
-
-    // element.addEventListener(Events.TOUCH_END, this._mouseUpCallback)
-    // element.addEventListener(Events.TOUCH_DRAG, this._mouseDragCallback)
+    element.addEventListener(
+      Events.TOUCH_END,
+      this._endCallback as EventListener
+    );
+    element.addEventListener(
+      Events.TOUCH_DRAG,
+      this._dragCallback as EventListener
+    );
+    element.addEventListener(
+      Events.TOUCH_START,
+      this._mouseDownCallback as EventListener
+    );
+    element.addEventListener(
+      Events.TOUCH_TAP,
+      this._endCallback as EventListener
+    );
   };
 
   _deactivateDraw = (element: HTMLDivElement) => {
@@ -586,27 +598,40 @@ class CobbAngleTool extends AnnotationTool {
 
     element.removeEventListener(
       Events.MOUSE_UP,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
     element.removeEventListener(
       Events.MOUSE_DRAG,
-      this._mouseDragCallback as EventListener
+      this._dragCallback as EventListener
     );
     element.removeEventListener(
       Events.MOUSE_MOVE,
-      this._mouseDragCallback as EventListener
+      this._dragCallback as EventListener
     );
     element.removeEventListener(
       Events.MOUSE_CLICK,
-      this._mouseUpCallback as EventListener
+      this._endCallback as EventListener
     );
     element.removeEventListener(
       Events.MOUSE_DOWN,
       this._mouseDownCallback as EventListener
     );
-
-    // element.removeEventListener(Events.TOUCH_END, this._mouseUpCallback)
-    // element.removeEventListener(Events.TOUCH_DRAG, this._mouseDragCallback)
+    element.removeEventListener(
+      Events.TOUCH_END,
+      this._endCallback as EventListener
+    );
+    element.removeEventListener(
+      Events.TOUCH_DRAG,
+      this._dragCallback as EventListener
+    );
+    element.removeEventListener(
+      Events.TOUCH_START,
+      this._mouseDownCallback as EventListener
+    );
+    element.removeEventListener(
+      Events.TOUCH_TAP,
+      this._endCallback as EventListener
+    );
   };
 
   /**
@@ -707,7 +732,7 @@ class CobbAngleTool extends AnnotationTool {
       let activeHandleCanvasCoords;
 
       if (
-        !isAnnotationLocked(annotation) &&
+        !isAnnotationLocked(annotationUID) &&
         !this.editData &&
         activeHandleIndex !== null
       ) {
@@ -721,7 +746,14 @@ class CobbAngleTool extends AnnotationTool {
         return renderStatus;
       }
 
-      if (activeHandleCanvasCoords) {
+      if (!isAnnotationVisible(annotationUID)) {
+        continue;
+      }
+
+      const showHandlesAlways = Boolean(
+        getStyleProperty('showHandlesAlways', {} as StyleSpecifier)
+      );
+      if (activeHandleCanvasCoords || showHandlesAlways) {
         const handleGroupUID = '0';
 
         drawHandlesSvg(
@@ -739,11 +771,11 @@ class CobbAngleTool extends AnnotationTool {
 
       const firstLine = [canvasCoordinates[0], canvasCoordinates[1]] as [
         Types.Point2,
-        Types.Point2
+        Types.Point2,
       ];
       const secondLine = [canvasCoordinates[2], canvasCoordinates[3]] as [
         Types.Point2,
-        Types.Point2
+        Types.Point2,
       ];
 
       let lineUID = 'line1';
@@ -970,11 +1002,11 @@ class CobbAngleTool extends AnnotationTool {
 
     const firstLine = [canvasPoints[0], canvasPoints[1]] as [
       Types.Point2,
-      Types.Point2
+      Types.Point2,
     ];
     const secondLine = [canvasPoints[2], canvasPoints[3]] as [
       Types.Point2,
-      Types.Point2
+      Types.Point2,
     ];
 
     const mid1 = midPoint2(firstLine[0], firstLine[1]);
@@ -1015,10 +1047,13 @@ class CobbAngleTool extends AnnotationTool {
       };
     }
 
+    const invalidated = annotation.invalidated;
     annotation.invalidated = false;
 
-    // Dispatching annotation modified
-    triggerAnnotationModified(annotation, element);
+    // Dispatching annotation modified only if it was invalidated
+    if (invalidated) {
+      triggerAnnotationModified(annotation, element, ChangeTypes.StatsUpdated);
+    }
 
     return cachedStats;
   }
@@ -1208,5 +1243,4 @@ function defaultGetTextLines(data, targetId): string[] {
   return textLines;
 }
 
-CobbAngleTool.toolName = 'CobbAngle';
 export default CobbAngleTool;

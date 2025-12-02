@@ -1,6 +1,7 @@
 enum GeometryType {
-  CONTOUR = 'contour',
-  SURFACE = 'Surface',
+  CONTOUR = 'CONTOUR',
+  SURFACE = 'SURFACE',
+  MESH = 'MESH',
 }
 
 export default GeometryType;

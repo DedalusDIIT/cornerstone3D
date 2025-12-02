@@ -4,9 +4,11 @@ import {
   eventTarget,
   imageLoadPoolManager,
   cache,
-  getConfiguration as getCoreConfiguration,
+  metaData,
+  utilities,
+  triggerEvent,
 } from '@cornerstonejs/core';
-import { addToolState, getToolState } from './state';
+import { addToolState, getToolState, type StackPrefetchData } from './state';
 import {
   getStackData,
   requestType,
@@ -15,6 +17,10 @@ import {
   nearestIndex,
   range,
 } from './stackPrefetchUtils';
+import { Events } from '../../enums';
+import type { EventTypes } from '../../types';
+
+const { imageRetrieveMetadataProvider } = utilities;
 
 let configuration = {
   maxImagesToPrefetch: Infinity,
@@ -38,7 +44,7 @@ function prefetch(element) {
     return;
   }
 
-  const stackPrefetch = stackPrefetchData || {};
+  const stackPrefetch = (stackPrefetchData || {}) as StackPrefetchData;
   const stack = getStackData(element);
 
   if (!stack?.imageIds?.length) {
@@ -49,7 +55,8 @@ function prefetch(element) {
   const { currentImageIdIndex } = stack;
 
   // If all the requests are complete, disable the stackPrefetch tool
-  stackPrefetch.enabled &&= stackPrefetch.indicesToRequest?.length;
+  stackPrefetch.enabled =
+    stackPrefetch.enabled && (stackPrefetch.indicesToRequest?.length ?? 0) > 0;
 
   // Make sure the tool is still enabled
   if (stackPrefetch.enabled === false) {
@@ -118,11 +125,22 @@ function prefetch(element) {
   let nextImageIdIndex;
   const preventCache = false;
 
-  function doneCallback(image) {
-    console.log('prefetch done: %s', image.imageId);
-    const imageIdIndex = stack.imageIds.indexOf(image.imageId);
+  function doneCallback(imageId) {
+    console.log('prefetch done: %s', imageId);
+    const imageIdIndex = stack.imageIds.indexOf(imageId);
 
     removeFromList(imageIdIndex);
+
+    // If all requests are complete, trigger the STACK_PREFETCH_COMPLETE event,
+    // providing the last imageId and triggering element so that the stack can
+    // be identified
+    if (stackPrefetch.indicesToRequest.length === 0) {
+      const eventDetail: EventTypes.StackPrefetchCompleteEventDetail = {
+        element: element,
+        lastPrefetchedImageId: imageId,
+      };
+      triggerEvent(eventTarget, Events.STACK_PREFETCH_COMPLETE, eventDetail);
+    }
   }
 
   // Prefetch images around the current image (before and after)
@@ -163,25 +181,26 @@ function prefetch(element) {
     }
   }
 
-  const requestFn = (imageId, options) =>
-    imageLoader.loadAndCacheImage(imageId, options);
-
-  const { useNorm16Texture, preferSizeOverAccuracy } =
-    getCoreConfiguration().rendering;
-
-  const useNativeDataType = useNorm16Texture || preferSizeOverAccuracy;
+  const requestFn = (imageId, options) => {
+    const { retrieveOptions = {} } =
+      metaData.get(
+        imageRetrieveMetadataProvider.IMAGE_RETRIEVE_CONFIGURATION,
+        imageId,
+        'stack'
+      ) || {};
+    options.retrieveOptions = {
+      ...options.retrieveOptions,
+      ...(retrieveOptions.default || Object.values(retrieveOptions)?.[0] || {}),
+    };
+    return imageLoader
+      .loadAndCacheImage(imageId, options)
+      .then(() => doneCallback(imageId));
+  };
 
   imageIdsToPrefetch.forEach((imageId) => {
     // IMPORTANT: Request type should be passed if not the 'interaction'
     // highest priority will be used for the request type in the imageRetrievalPool
     const options = {
-      targetBuffer: {
-        type: useNativeDataType ? undefined : 'Float32Array',
-      },
-      preScale: {
-        enabled: true,
-      },
-      useNativeDataType,
       requestType,
     };
 

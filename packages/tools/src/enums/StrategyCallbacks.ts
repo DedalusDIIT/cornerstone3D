@@ -24,9 +24,12 @@ enum StrategyCallbacks {
   AcceptPreview = 'acceptPreview',
 
   /**
-   * Fills the given reygion
+   * Fills the given region
    */
   Fill = 'fill',
+
+  /** Interpolate the labelmaps */
+  Interpolate = 'interpolate',
 
   /**
    * The default strategy function, often synonymous with fill
@@ -34,7 +37,7 @@ enum StrategyCallbacks {
   StrategyFunction = 'strategyFunction',
 
   /**
-   * For threshold functions, this creates the thresold test.  Mostly an internal
+   * For threshold functions, this creates the threshold test.  Mostly an internal
    * detail, but might be useful to share between strategies.
    */
   CreateIsInThreshold = 'createIsInThreshold',
@@ -48,8 +51,24 @@ enum StrategyCallbacks {
   // Internal Details
   INTERNAL_setValue = 'setValue',
 
+  /**
+   * Adds a preview interpolation from the given data.  This allows external
+   * methods to set/update the preview and then have it shown/accepted in the
+   * normal fashion.
+   */
+  AddPreview = 'addPreview',
+
   /** inner circle size  */
   ComputeInnerCircleRadius = 'computeInnerCircleRadius',
+
+  /** Compute statistics on this instance */
+  GetStatistics = 'getStatistics',
+
+  /** Handle stack viewport sphere brush overrides */
+  EnsureImageVolumeFor3DManipulation = 'ensureImageVolumeFor3DManipulation',
+
+  /** Handle stack image reference for 3D manipulation */
+  EnsureSegmentationVolumeFor3DManipulation = 'ensureSegmentationVolumeFor3DManipulation',
 }
 
 export default StrategyCallbacks;

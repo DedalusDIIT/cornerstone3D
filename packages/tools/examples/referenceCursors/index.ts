@@ -1,9 +1,5 @@
-import {
-  RenderingEngine,
-  Types,
-  volumeLoader,
-  Enums,
-} from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { RenderingEngine, volumeLoader, Enums } from '@cornerstonejs/core';
 import {
   initDemo,
   createImageIdsAndCacheMetaData,
@@ -20,7 +16,7 @@ console.warn(
 
 const {
   ToolGroupManager,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   ReferenceCursors,
   PanTool,
   ZoomTool,
@@ -38,8 +34,8 @@ const initialDisableCursor = false;
 
 // ======== Set up page ======== //
 setTitleAndDescription(
-  'Cursor corsshair syncing example',
-  'This example shows how to sync the crosshair cursors between 3 viewports (2 Stack viewports and 1 Volume viewport with a slightly different orientation). To disable orther cursors, set disableCursor to on and then disable and reactivate the tool.'
+  'Cursor crosshair syncing example',
+  'This example shows how to sync the crosshair cursors between 3 viewports (2 Stack viewports and 1 Volume viewport with a slightly different orientation). To disable other cursors, set disableCursor to on and then disable and reactivate the tool.'
 );
 
 const size = '500px';
@@ -164,7 +160,7 @@ async function run() {
 
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(ReferenceCursors);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
+  cornerstoneTools.addTool(StackScrollTool);
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(ZoomTool);
 
@@ -174,7 +170,7 @@ async function run() {
 
   // Add the tools to the tool group and specify which volume they are pointing at
   toolGroup.addTool(ReferenceCursors.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
 
@@ -189,7 +185,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   const stackImageIds = await createImageIdsAndCacheMetaData({
@@ -197,7 +193,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   const smallVolumeImageIds = [volumeImageIds[42], volumeImageIds[43]]; // Small bit of the body
@@ -278,7 +274,9 @@ async function run() {
 
   // As the Stack Scroll mouse wheel is a tool using the `mouseWheelCallback`
   // hook instead of mouse buttons, it does not need to assign any mouse button.
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [{ mouseButton: csToolsEnums.MouseBindings.Wheel }],
+  });
 
   toolGroup.setToolActive(PanTool.toolName, {
     bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }],

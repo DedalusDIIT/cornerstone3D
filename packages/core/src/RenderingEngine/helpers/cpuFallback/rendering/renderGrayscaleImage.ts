@@ -7,7 +7,8 @@ import getLut from './getLut';
 import doesImageNeedToBeRendered from './doesImageNeedToBeRendered';
 import initializeRenderCanvas from './initializeRenderCanvas';
 import saveLastRendered from './saveLastRendered';
-import { IImage, CPUFallbackEnabledElement } from '../../../../types';
+import type { IImage, CPUFallbackEnabledElement } from '../../../../types';
+import { createCanvas } from '../../getOrCreateCanvas';
 
 /**
  * Returns an appropriate canvas to render the Image. If the canvas available in the cache is appropriate
@@ -26,21 +27,20 @@ function getRenderCanvas(
   invalidated: boolean,
   useAlphaChannel = true
 ): HTMLCanvasElement {
-  const canvasWasColor =
-    enabledElement.renderingTools.lastRenderedIsColor === true;
+  const canvasWasColor = enabledElement.renderingTools.lastRenderedIsColor;
 
   if (!enabledElement.renderingTools.renderCanvas || canvasWasColor) {
-    enabledElement.renderingTools.renderCanvas =
-      document.createElement('canvas');
+    enabledElement.renderingTools.renderCanvas = createCanvas(
+      null,
+      image.width,
+      image.height
+    ) as unknown as HTMLCanvasElement;
     initializeRenderCanvas(enabledElement, image);
   }
 
   const renderCanvas = enabledElement.renderingTools.renderCanvas;
 
-  if (
-    doesImageNeedToBeRendered(enabledElement, image) === false &&
-    invalidated !== true
-  ) {
+  if (!doesImageNeedToBeRendered(enabledElement, image) && !invalidated) {
     return renderCanvas;
   }
 

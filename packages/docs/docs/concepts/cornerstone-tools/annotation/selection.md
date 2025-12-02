@@ -1,6 +1,7 @@
 ---
 id: selection
 title: Selection
+summary: API for selecting annotations via Shift+click interaction or programmatically, with methods to retrieve selected annotations by tool type
 ---
 
 # Selection
@@ -31,5 +32,5 @@ annotation.selection.getAnnotationsSelectedByToolName(toolName);
 ## Read more
 
 :::note TIP
-Read more about the selection API [**here**](/api/tools/namespace/annotation#selection)
+Read more about the selection API [**here**](/docs/api/tools/namespaces/annotation/namespaces/selection/)
 :::

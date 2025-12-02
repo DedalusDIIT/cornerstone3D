@@ -1,7 +1,7 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   cache,
   RenderingEngine,
-  Types,
   Enums,
   setVolumesForViewports,
   volumeLoader,
@@ -11,7 +11,9 @@ import {
   createImageIdsAndCacheMetaData,
   setTitleAndDescription,
   addButtonToToolbar,
-  setCtTransferFunctionForVolumeActor,
+  addCheckboxToToolbar,
+  addInputToToolbar,
+  setPetTransferFunctionForVolumeActor,
   getLocalUrl,
 } from '../../../../utils/demo/helpers';
 import * as cornerstoneTools from '@cornerstonejs/tools';
@@ -22,14 +24,13 @@ console.warn(
 );
 
 const {
-  SegmentationDisplayTool,
   ToolGroupManager,
   Enums: csToolsEnums,
   segmentation,
   RectangleROIStartEndThresholdTool,
   PanTool,
   ZoomTool,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   annotation,
 } = cornerstoneTools;
 
@@ -38,14 +39,86 @@ const { MouseBindings } = csToolsEnums;
 const { ViewportType } = Enums;
 
 // Define a unique id for the volume
-const volumeName = 'CT_VOLUME_ID'; // Id of the volume less loader prefix
+const volumeName = 'PT_VOLUME_ID'; // Id of the volume less loader prefix
 const volumeLoaderScheme = 'cornerstoneStreamingImageVolume'; // Loader id which defines which volume loader to use
 const volumeId = `${volumeLoaderScheme}:${volumeName}`; // VolumeId with loader id + volume id
 
 const segmentationId = 'MY_SEGMENTATION_ID';
 const toolGroupId = 'MY_TOOLGROUP_ID';
 
-let segmentationRepresentationByUID;
+let thresholdLower = 0.41; // Typical default
+let thresholdByMaxRelative = true;
+
+// Helper function - based off of getThresholdValue from OHIF Viewer
+function getReliableAnnotationMaxValue(annotation, volume) {
+  if (!annotation) {
+    console.error('getReliableAnnotationMaxValue: Missing annotation.');
+    return -Infinity; // Or throw error
+  }
+
+  if (!volume) {
+    console.error('getReliableAnnotationMaxValue: Missing volume.');
+    return -Infinity; // Or throw error
+  }
+
+  if (!volume.imageData || typeof volume.imageData.get !== 'function') {
+    console.error(
+      `getReliableAnnotationMaxValue: Volume ${volume.volumeId} or its imageData/get method not found.`
+    );
+    return -Infinity;
+  }
+
+  const primaryVmData = volume.imageData.get('voxelManager');
+  if (!primaryVmData || !primaryVmData.voxelManager) {
+    console.error(
+      `getReliableAnnotationMaxValue: Nested voxelManager not found for volume ${volume.volumeId}.`
+    );
+    return -Infinity;
+  }
+  const actualVoxelManager = primaryVmData.voxelManager;
+
+  const boundsIJK =
+    cornerstoneTools.utilities.rectangleROITool.getBoundsIJKFromRectangleAnnotations(
+      [annotation], // Pass as an array
+      volume
+    );
+
+  if (!boundsIJK) {
+    console.warn(
+      `getReliableAnnotationMaxValue: Could not get boundsIJK for annotation ${annotation.annotationUID}`
+    );
+    return -Infinity;
+  }
+
+  let maxValue = -Infinity;
+  let iteratedCount = 0;
+  try {
+    actualVoxelManager.forEach(
+      ({ value: voxelValue }) => {
+        iteratedCount++;
+        if (voxelValue > maxValue) {
+          maxValue = voxelValue;
+        }
+      },
+      { boundsIJK }
+    );
+  } catch (e) {
+    console.error(
+      `Error during voxelManager.forEach in getReliableAnnotationMaxValue: ${e.message}`
+    );
+    return -Infinity; // Or rethrow if critical
+  }
+
+  if (iteratedCount === 0 && maxValue === -Infinity) {
+    console.warn(
+      `getReliableAnnotationMaxValue: forEach did not iterate or all values <= -Infinity for annotation ${
+        annotation.annotationUID
+      }. BoundsIJK: ${JSON.stringify(boundsIJK)}.`
+    );
+  }
+
+  return maxValue;
+}
 
 // ======== Set up page ======== //
 setTitleAndDescription(
@@ -169,35 +242,88 @@ addButtonToToolbar({
   onClick: () => {
     const annotations = cornerstoneTools.annotation.state.getAllAnnotations();
     const labelmapVolume = cache.getVolume(segmentationId);
-    const scalarData = labelmapVolume.getScalarData();
+    const volume = cache.getVolume(volumeId);
 
-    //We set the segmentation to 0
-    for (let i = 0; i < scalarData.length; i++) {
-      scalarData[i] = 0;
+    const annotationUIDs = annotations.map((a) => {
+      return a.annotationUID;
+    });
+
+    const upper = Infinity;
+    let lower = thresholdLower;
+    if (thresholdByMaxRelative) {
+      // Works normally, but doesn't populate in time for playwright
+      //const annotationMaxValue = annotations[0].data.cachedStats.statistics.max;
+
+      // Alternative more reliable method
+      //const sourceVolume = cache.getVolume(volumeId);
+      const annotationMaxValue = getReliableAnnotationMaxValue(
+        annotations[0],
+        volume
+      );
+      lower = thresholdLower * annotationMaxValue;
+      console.log(annotationMaxValue);
+      console.log(lower);
     }
 
-    annotations.map((annotation, i) => {
-      // @ts-ignore
-      const pointsInVolume = annotation.data.cachedStats.pointsInVolume;
-      for (let i = 0; i < pointsInVolume.length; i++) {
-        for (let j = 0; j < pointsInVolume[i].length; j++) {
-          if (pointsInVolume[i][j].value > 2) {
-            scalarData[pointsInVolume[i][j].index] = 1;
-          }
-        }
-      }
-    });
+    //const volume = cache.getVolumes()[0]; // 0 is volume loaded
+
+    cornerstoneTools.utilities.segmentation.rectangleROIThresholdVolumeByRange(
+      annotationUIDs,
+      labelmapVolume,
+      [{ volume, lower, upper }],
+      { overwrite: true, segmentationId }
+    );
 
     cornerstoneTools.segmentation.triggerSegmentationEvents.triggerSegmentationDataModified(
       labelmapVolume.volumeId
     );
     labelmapVolume.modified();
+
+    // example calculate TMTV
+    const segmentationIds = [segmentationId];
+    cornerstoneTools.utilities.segmentation
+      .computeMetabolicStats({
+        segmentationIds,
+        segmentIndex: 1,
+      })
+      .then((stats) => {
+        console.log(stats);
+      });
+
+    // Example get statistics over threshold region
+    cornerstoneTools.utilities.segmentation
+      .getStatistics({
+        segmentationId,
+        segmentIndices: 1,
+        mode: 'individual',
+      })
+      .then((stats) => {
+        console.log(stats);
+      });
+  },
+});
+
+addInputToToolbar({
+  id: 'thresholdSlider',
+  title: `Threshold:`,
+  defaultValue: thresholdLower,
+  onSelectedValueChange: (newVal) => {
+    thresholdLower = parseFloat(newVal);
+  },
+});
+
+addCheckboxToToolbar({
+  id: 'thresholdMaxRelative',
+  title: 'Relative to Max',
+  checked: thresholdByMaxRelative,
+  onChange: (newChecked) => {
+    thresholdByMaxRelative = newChecked;
   },
 });
 
 async function addSegmentationsToState() {
   // Create a segmentation of the same resolution as the source data
-  await volumeLoader.createAndCacheDerivedSegmentationVolume(volumeId, {
+  volumeLoader.createAndCacheDerivedLabelmapVolume(volumeId, {
     volumeId: segmentationId,
   });
 
@@ -228,8 +354,7 @@ async function run() {
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(ZoomTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
-  cornerstoneTools.addTool(SegmentationDisplayTool);
+  cornerstoneTools.addTool(StackScrollTool);
   cornerstoneTools.addTool(RectangleROIStartEndThresholdTool);
 
   // Define tool groups to add the segmentation display tool to
@@ -238,15 +363,17 @@ async function run() {
   // Manipulation Tools
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
 
   // Segmentation Tools
-  toolGroup.addTool(SegmentationDisplayTool.toolName);
   toolGroup.addTool(RectangleROIStartEndThresholdTool.toolName, {
-    calculatePointsInsideVolume: true,
+    /* Define if the stats are calculated while drawing the annotation or at the end */
+    calculatePointsInsideVolume: false,
     showTextBox: true,
+    storePointData: true,
+    /*Set a custom wait time */
+    throttleTimeout: 100,
   });
-  toolGroup.setToolEnabled(SegmentationDisplayTool.toolName);
 
   toolGroup.setToolActive(RectangleROIStartEndThresholdTool.toolName, {
     bindings: [{ mouseButton: MouseBindings.Primary }],
@@ -268,22 +395,28 @@ async function run() {
   });
   // As the Stack Scroll mouse wheel is a tool using the `mouseWheelCallback`
   // hook instead of mouse buttons, it does not need to assign any mouse button.
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Wheel }],
+  });
 
   // Get Cornerstone imageIds for the source data and fetch metadata into RAM
   const imageIds = await createImageIdsAndCacheMetaData({
-    StudyInstanceUID:
-      '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
+    StudyInstanceUID: '1.2.840.113619.2.290.3.3767434740.226.1600859119.501', // Water phantom
+    //'1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463', // Original
+
     SeriesInstanceUID:
-      '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
+      '2.16.840.1.114362.1.12114306.25269253871.642214905.509.634', // PT AC192
+    //'1.3.6.1.4.1.14519.5.2.1.7009.2403.879445243400782656317561081015', // Original
+
     wadoRsRoot:
-      getLocalUrl() || 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+      getLocalUrl() || 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Define a volume in memory
   const volume = await volumeLoader.createAndCacheVolume(volumeId, {
     imageIds,
   });
+
   // Add some segmentations based on the source data volume
   await addSegmentationsToState();
 
@@ -292,9 +425,9 @@ async function run() {
   const renderingEngine = new RenderingEngine(renderingEngineId);
 
   // Create the viewports
-  const viewportId1 = 'CT_AXIAL';
-  const viewportId2 = 'CT_SAGITTAL';
-  const viewportId3 = 'CT_CORONAL';
+  const viewportId1 = 'PT_AXIAL';
+  const viewportId2 = 'PT_SAGITTAL';
+  const viewportId3 = 'PT_CORONAL';
 
   const viewportInputArray = [
     {
@@ -303,7 +436,7 @@ async function run() {
       element: element1,
       defaultOptions: {
         orientation: Enums.OrientationAxis.AXIAL,
-        background: <Types.Point3>[0, 0, 0],
+        background: <Types.Point3>[1, 1, 1],
       },
     },
     {
@@ -312,7 +445,7 @@ async function run() {
       element: element2,
       defaultOptions: {
         orientation: Enums.OrientationAxis.SAGITTAL,
-        background: <Types.Point3>[0, 0, 0],
+        background: <Types.Point3>[1, 1, 1],
       },
     },
     {
@@ -321,7 +454,7 @@ async function run() {
       element: element3,
       defaultOptions: {
         orientation: Enums.OrientationAxis.CORONAL,
-        background: <Types.Point3>[0, 0, 0],
+        background: <Types.Point3>[1, 1, 1],
       },
     },
   ];
@@ -338,12 +471,12 @@ async function run() {
   // Set volumes on the viewports
   await setVolumesForViewports(
     renderingEngine,
-    [{ volumeId, callback: setCtTransferFunctionForVolumeActor }],
+    [{ volumeId, callback: setPetTransferFunctionForVolumeActor }],
     [viewportId1, viewportId2, viewportId3]
   );
 
   // Add the segmentation representation to the toolgroup
-  await segmentation.addSegmentationRepresentations(toolGroupId, [
+  await segmentation.addSegmentationRepresentations(viewportId1, [
     {
       segmentationId,
       type: csToolsEnums.SegmentationRepresentations.Labelmap,

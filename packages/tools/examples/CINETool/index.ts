@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   utilities as csUtils,
   volumeLoader,
@@ -146,9 +146,8 @@ function setActiveElement(element) {
 
   (<HTMLInputElement>document.querySelector('#fpsSlider')).value = fps;
 
-  (<HTMLElement>(
-    document.querySelector('#fpsSlider-label')
-  )).innerText = ` Frames per second: ${fps}`;
+  (<HTMLElement>document.querySelector('#fpsSlider-label')).innerText =
+    ` Frames per second: ${fps}`;
 }
 
 /**
@@ -204,7 +203,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Instantiate a rendering engine
@@ -254,7 +253,7 @@ async function run() {
         orientation: {
           // Random oblique orientation
           viewUp: <Types.Point3>[
-            -0.5962687530844388, 0.5453181550345819, -0.5891448751239446,
+            0.7070766143169096, 0.009237043481146607, -0.7070766143169096,
           ],
           viewPlaneNormal: <Types.Point3>[
             -0.5962687530844388, 0.5453181550345819, -0.5891448751239446,

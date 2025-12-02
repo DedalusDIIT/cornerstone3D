@@ -1,7 +1,7 @@
 import vtkColormaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   getRenderingEngine,
 } from '@cornerstonejs/core';
@@ -25,7 +25,7 @@ console.warn(
 const {
   PanTool,
   WindowLevelTool,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   ZoomTool,
   ToolGroupManager,
   Enums: csToolsEnums,
@@ -66,7 +66,7 @@ Object.assign(viewportGrid.style, {
   height: '512px',
   marginTop: '5px',
   display: 'grid',
-  gridTemplateColumns: `1fr ${colorbarWidth}px`,
+  gridTemplateColumns: `1fr ${colorbarWidth}px`, // Default with colorbar on the right
 });
 
 content.appendChild(viewportGrid);
@@ -88,6 +88,7 @@ addInstruction('- Click and drag on the color bar to change VOI');
 
 // Dropdown that allows the user to select a different colormap
 addDropdownToToolbar({
+  labelText: 'Colormap: ',
   options: {
     values: colormaps.map((cm) => cm.Name),
     defaultValue: currentPTColormapName,
@@ -98,6 +99,21 @@ addDropdownToToolbar({
   onSelectedValueChange: (selectedValue) => {
     ctColorbar.activeColormapName = selectedValue;
     setViewportColormap(<string>selectedValue);
+  },
+});
+
+// Dropdown that allows the user to change colorbar position
+addDropdownToToolbar({
+  labelText: 'Colorbar Position: ',
+  options: {
+    values: ['right', 'bottom'],
+    defaultValue: 'right',
+  },
+  style: {
+    maxWidth: '120px',
+  },
+  onSelectedValueChange: (position) => {
+    updateColorbarPosition(position as string);
   },
 });
 
@@ -117,6 +133,103 @@ function setViewportColormap(colormapName: string) {
   viewport.render();
 }
 
+// Update the colorbar position
+function updateColorbarPosition(position: string) {
+  const renderingEngine = getRenderingEngine(renderingEngineId);
+  if (!renderingEngine) {
+    return; // Exit if rendering engine not ready yet
+  }
+
+  const viewport = renderingEngine.getViewport(viewportId);
+  if (!viewport) {
+    return; // Exit if viewport not ready yet
+  }
+
+  const element = viewport.element;
+
+  // Save current colormap if colorbar exists
+  const currentColormapName = ctColorbar
+    ? ctColorbar.activeColormapName
+    : 'Grayscale';
+
+  // Remove the old colorbar and its container if they exist
+  if (ctColorbar) {
+    ctColorbar.destroy();
+  }
+
+  const oldContainer = document.querySelector('#colorbarContainer');
+  if (oldContainer) {
+    oldContainer.remove();
+  }
+
+  // Recreate the grid layout based on position
+  if (position === 'bottom') {
+    viewportGrid.style.display = 'grid';
+    viewportGrid.style.gridTemplateRows = `1fr ${colorbarWidth}px`;
+    viewportGrid.style.gridTemplateColumns = '1fr';
+  } else {
+    viewportGrid.style.display = 'grid';
+    viewportGrid.style.gridTemplateRows = '1fr';
+    viewportGrid.style.gridTemplateColumns =
+      position === 'right'
+        ? `1fr ${colorbarWidth}px`
+        : `${colorbarWidth}px 1fr`;
+  }
+
+  // Create a new colorbar container
+  const colorbarContainer = document.createElement('div');
+  colorbarContainer.id = 'colorbarContainer';
+
+  Object.assign(colorbarContainer.style, {
+    position: 'relative',
+    boxSizing: 'border-box',
+    border: 'solid 1px #555',
+    cursor: 'initial',
+    width: '100%',
+    height: '100%',
+  });
+
+  // Position the container based on selected position
+  if (position === 'bottom') {
+    colorbarContainer.style.gridRow = '2';
+  } else if (position === 'right') {
+    colorbarContainer.style.gridColumn = '2';
+  } else if (position === 'left') {
+    colorbarContainer.style.gridColumn = '1';
+  }
+
+  viewportGrid.appendChild(colorbarContainer);
+
+  // Get proper tick position based on colorbar position
+  let tickPosition = ColorbarRangeTextPosition.Top; // Default for bottom position
+
+  if (position === 'right') {
+    tickPosition = ColorbarRangeTextPosition.Left;
+  } else if (position === 'left') {
+    tickPosition = ColorbarRangeTextPosition.Right;
+  }
+
+  // Create a new colorbar
+  ctColorbar = new ViewportColorbar({
+    id: 'ctColorbar',
+    element,
+    container: colorbarContainer,
+    colormaps,
+    activeColormapName: currentColormapName,
+    ticks: {
+      position: tickPosition,
+      style: {
+        font: '12px Arial',
+        color: '#fff',
+        maxNumTicks: 8,
+        tickSize: 5,
+        tickWidth: 1,
+        labelMargin: 10,
+      },
+    },
+  });
+}
+
 /**
  * Creates a viewport, load its stack/volume and adds its color bar(s).
  */
@@ -130,7 +243,7 @@ function initializeToolGroup(toolGroupId) {
   toolGroup.addTool(WindowLevelTool.toolName);
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
 
   // Set the initial state of the tools, here all tools are active and bound to
   // Different mouse inputs
@@ -160,7 +273,13 @@ function initializeToolGroup(toolGroupId) {
 
   // As the Stack Scroll mouse wheel is a tool using the `mouseWheelCallback`
   // hook instead of mouse buttons, it does not need to assign any mouse button.
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Wheel,
+      },
+    ],
+  });
 
   return toolGroup;
 }
@@ -175,7 +294,7 @@ async function run() {
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(WindowLevelTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
+  cornerstoneTools.addTool(StackScrollTool);
   cornerstoneTools.addTool(ZoomTool);
 
   // Instantiate a rendering engine
@@ -217,7 +336,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // A reference for the new stack viewport created
@@ -228,39 +347,8 @@ async function run() {
   // Load the stack
   viewport.setStack(imageIds);
 
-  // Create the container that is located on the left side of the viewport
-  const colorbarContainer = document.createElement('div');
-
-  Object.assign(colorbarContainer.style, {
-    position: 'relative',
-    boxSizing: 'border-box',
-    border: 'solid 1px #555',
-    cursor: 'initial',
-    width: '100%',
-    height: '100%',
-  });
-
-  viewportGrid.appendChild(colorbarContainer);
-
-  // Create and add the color bar to the DOM
-  ctColorbar = new ViewportColorbar({
-    id: 'ctColorbar',
-    element,
-    container: colorbarContainer,
-    colormaps,
-    activeColormapName: 'Grayscale',
-    ticks: {
-      position: ColorbarRangeTextPosition.Left,
-      style: {
-        font: '12px Arial',
-        color: '#fff',
-        maxNumTicks: 8,
-        tickSize: 5,
-        tickWidth: 1,
-        labelMargin: 3,
-      },
-    },
-  });
+  // Initial position of colorbar is 'right' (matching the dropdown default)
+  updateColorbarPosition('right');
 }
 
 run();

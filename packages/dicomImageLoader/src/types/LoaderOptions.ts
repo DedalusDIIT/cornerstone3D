@@ -1,7 +1,11 @@
-import { LoaderDecodeOptions } from './LoaderDecodeOptions';
-import { LoaderXhrRequestError, LoaderXhrRequestParams } from './XHRRequest';
+import type { LoaderDecodeOptions } from './LoaderDecodeOptions';
+import type {
+  LoaderXhrRequestError,
+  LoaderXhrRequestParams,
+} from './XHRRequest';
 
 export interface LoaderOptions {
+  maxWebWorkers?: number;
   // callback to open the object
   open?: (
     xhr: XMLHttpRequest,
@@ -15,15 +19,15 @@ export interface LoaderOptions {
     imageId: string,
     defaultHeaders: Record<string, string>,
     params: LoaderXhrRequestParams
-  ) => Record<string, string> | void;
+  ) => Promise<Record<string, string> | void> | Record<string, string> | void;
   // callback allowing modification of the xhr response before creating image objects
   beforeProcessing?: (xhr: XMLHttpRequest) => Promise<ArrayBuffer>;
   // callback allowing modification of newly created image objects
-  imageCreated?: (...args: any[]) => void;
-  onloadstart?: (event: ProgressEvent<EventTarget>, params: any) => void;
-  onloadend?: (event: ProgressEvent<EventTarget>, params: any) => void;
-  onreadystatechange?: (event: Event, params: any) => void;
-  onprogress?: (event: ProgressEvent<EventTarget>, params: any) => void;
+  imageCreated?: (imageObject: unknown) => void;
+  onloadstart?: (event: ProgressEvent<EventTarget>, params: unknown) => void;
+  onloadend?: (event: ProgressEvent<EventTarget>, params: unknown) => void;
+  onreadystatechange?: (event: Event, params: unknown) => void;
+  onprogress?: (event: ProgressEvent<EventTarget>, params: unknown) => void;
   errorInterceptor?: (error: LoaderXhrRequestError) => void;
   strict?: boolean;
   decodeConfig?: LoaderDecodeOptions;

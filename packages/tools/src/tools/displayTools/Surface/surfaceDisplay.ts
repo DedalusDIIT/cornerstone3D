@@ -1,100 +1,100 @@
-import {
-  cache,
-  getEnabledElementByIds,
-  Types,
-  VolumeViewport3D,
-} from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { cache, getEnabledElementByViewportId } from '@cornerstonejs/core';
 
-import * as SegmentationState from '../../../stateManagement/segmentation/segmentationState';
 import Representations from '../../../enums/SegmentationRepresentations';
-import { getToolGroup } from '../../../store/ToolGroupManager';
-import { ToolGroupSpecificRepresentation } from '../../../types/SegmentationStateTypes';
-
+import type { SegmentationRepresentation } from '../../../types/SegmentationStateTypes';
 import removeSurfaceFromElement from './removeSurfaceFromElement';
 import addOrUpdateSurfaceToElement from './addOrUpdateSurfaceToElement';
-import { polySeg } from '../../../stateManagement/segmentation';
+import { getSegmentation } from '../../../stateManagement/segmentation/getSegmentation';
+import { getColorLUT } from '../../../stateManagement/segmentation/getColorLUT';
+import { getPolySeg } from '../../../config';
+import { computeAndAddRepresentation } from '../../../utilities/segmentation/computeAndAddRepresentation';
+import { internalGetHiddenSegmentIndices } from '../../../stateManagement/segmentation/helpers/internalGetHiddenSegmentIndices';
 
 /**
  * It removes a segmentation representation from the tool group's viewports and
  * from the segmentation state
  * @param toolGroupId - The toolGroupId of the toolGroup that the
- * segmentationRepresentation belongs to.
- * @param segmentationRepresentationUID - This is the unique identifier
- * for the segmentation representation.
+ * segmentation belongs to.
+ * @param segmentationId - This is the unique identifier
+ * for the segmentation.
  * @param renderImmediate - If true, the viewport will be rendered
  * immediately after the segmentation representation is removed.
  */
-function removeSegmentationRepresentation(
-  toolGroupId: string,
-  segmentationRepresentationUID: string,
+function removeRepresentation(
+  viewportId: string,
+  segmentationId: string,
   renderImmediate = false
 ): void {
-  _removeSurfaceFromToolGroupViewports(
-    toolGroupId,
-    segmentationRepresentationUID
-  );
-  SegmentationState.removeSegmentationRepresentation(
-    toolGroupId,
-    segmentationRepresentationUID
-  );
-
-  if (renderImmediate) {
-    const viewportsInfo = getToolGroup(toolGroupId).getViewportsInfo();
-    viewportsInfo.forEach(({ viewportId, renderingEngineId }) => {
-      const enabledElement = getEnabledElementByIds(
-        viewportId,
-        renderingEngineId
-      );
-      enabledElement.viewport.render();
-    });
+  const enabledElement = getEnabledElementByViewportId(viewportId);
+  if (!enabledElement) {
+    return;
   }
+
+  const { viewport } = enabledElement;
+
+  removeSurfaceFromElement(viewport.element, segmentationId);
+
+  if (!renderImmediate) {
+    return;
+  }
+
+  viewport.render();
 }
 
 /**
  * It renders the Surface  for the given segmentation
  * @param viewport - The viewport object
- * @param representation - ToolGroupSpecificRepresentation
+ * @param representation - SegmentationRepresentation
  * @param toolGroupConfig - This is the configuration object for the tool group
  */
 async function render(
-  viewport: Types.IVolumeViewport,
-  representation: ToolGroupSpecificRepresentation
+  viewport: Types.IVolumeViewport | Types.IStackViewport,
+  representation: SegmentationRepresentation
 ): Promise<void> {
-  const { colorLUTIndex, segmentationId, segmentationRepresentationUID } =
-    representation;
+  const { segmentationId, type } = representation;
 
-  const segmentation = SegmentationState.getSegmentation(segmentationId);
+  const segmentation = getSegmentation(segmentationId);
 
   if (!segmentation) {
     return;
-  }
-
-  if (!(viewport instanceof VolumeViewport3D)) {
-    throw new Error(
-      'Surface rendering is only supported in 3D viewports, if you need to visualize the surface cuts in 2D viewports, you can use the Contour representation, see polySeg converters'
-    );
   }
 
   let SurfaceData = segmentation.representationData[Representations.Surface];
 
   if (
     !SurfaceData &&
-    polySeg.canComputeRequestedRepresentation(segmentationRepresentationUID)
+    getPolySeg()?.canComputeRequestedRepresentation(
+      segmentationId,
+      Representations.Surface
+    )
   ) {
     // we need to check if we can request polySEG to convert the other
     // underlying representations to Surface
-    SurfaceData = await polySeg.computeAndAddSurfaceRepresentation(
+    const polySeg = getPolySeg();
+
+    SurfaceData = await computeAndAddRepresentation(
       segmentationId,
-      {
-        segmentationRepresentationUID,
-      }
+      Representations.Surface,
+      () => polySeg.computeSurfaceData(segmentationId, { viewport })
     );
 
     if (!SurfaceData) {
       throw new Error(
-        `No Surface data found for segmentationId ${segmentationId}.`
+        `No Surface data found for segmentationId ${segmentationId} even we tried to compute it`
       );
     }
+  } else if (!SurfaceData && !getPolySeg()) {
+    console.debug(
+      `No surface data found for segmentationId ${segmentationId} and PolySeg add-on is not configured. Unable to convert from other representations to surface. Please register PolySeg using cornerstoneTools.init({ addons: { polySeg } }) to enable automatic conversion.`
+    );
+  }
+
+  if (!SurfaceData) {
+    console.warn(
+      `No Surface data found for segmentationId ${segmentationId}. Skipping render.`
+    );
+    return;
   }
 
   const { geometryIds } = SurfaceData;
@@ -105,63 +105,57 @@ async function render(
     );
   }
 
-  const colorLUT = SegmentationState.getColorLUT(colorLUTIndex);
+  const { colorLUTIndex } = representation;
+
+  const colorLUT = getColorLUT(colorLUTIndex);
 
   const surfaces = [];
-  geometryIds.forEach((geometryId, segmentIndex) => {
-    const geometry = cache.getGeometry(geometryId);
+  geometryIds.forEach((geometryId) => {
+    const geometry = cache.getGeometry(geometryId) as Types.IGeometry;
+
     if (!geometry?.data) {
       console.warn(
         `No Surfaces found for geometryId ${geometryId}. Skipping render.`
       );
       return;
     }
+    const { segmentIndex } = geometry.data as Types.ISurface;
+
+    const hiddenSegments = internalGetHiddenSegmentIndices(viewport.id, {
+      segmentationId,
+      type,
+    });
+    const isHidden = hiddenSegments.has(segmentIndex);
 
     const surface = geometry.data as Types.ISurface;
 
     const color = colorLUT[segmentIndex];
-    surface.setColor(color.slice(0, 3) as Types.Point3);
-
-    addOrUpdateSurfaceToElement(
-      viewport.element,
-      surface as Types.ISurface,
-      segmentationRepresentationUID
-    );
+    surface.color = color.slice(0, 3) as Types.Point3;
+    surface.visible = !isHidden;
 
     surfaces.push(surface);
+    addOrUpdateSurfaceToElement(
+      viewport as Types.IVolumeViewport,
+      surface as Types.ISurface,
+      segmentationId
+    );
   });
 
   viewport.render();
 }
 
-function _removeSurfaceFromToolGroupViewports(
-  toolGroupId: string,
-  segmentationRepresentationUID: string
-): void {
-  const toolGroup = getToolGroup(toolGroupId);
-
-  if (toolGroup === undefined) {
-    throw new Error(`ToolGroup with ToolGroupId ${toolGroupId} does not exist`);
-  }
-
-  const { viewportsInfo } = toolGroup;
-
-  for (const viewportInfo of viewportsInfo) {
-    const { viewportId, renderingEngineId } = viewportInfo;
-    const enabledElement = getEnabledElementByIds(
-      viewportId,
-      renderingEngineId
-    );
-    removeSurfaceFromElement(
-      enabledElement.viewport.element,
-      segmentationRepresentationUID
-    );
-  }
+function getUpdateFunction(
+  viewport: Types.IVolumeViewport | Types.IStackViewport
+): (segmentationId: string) => Promise<void> {
+  const polySeg = getPolySeg();
+  return (segmentationId: string) =>
+    polySeg.updateSurfaceData(segmentationId, { viewport });
 }
 
 export default {
+  getUpdateFunction,
   render,
-  removeSegmentationRepresentation,
+  removeRepresentation,
 };
 
-export { render, removeSegmentationRepresentation };
+export { getUpdateFunction, render, removeRepresentation };

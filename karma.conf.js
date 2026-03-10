@@ -1,13 +1,39 @@
+// @ts-check
 const path = require('path');
+const os = require('os');
 
 process.env.CHROME_BIN = require('puppeteer').executablePath();
 
+/**
+ *
+ * Tests for the dicomImageLoaders require support for Web Workers and loading
+ * wasm files required for image decoding.
+ *
+ * In order to support this, the karma config requires some customisation. This
+ * is based on
+ * https://github.com/codymikol/karma-webpack/issues/498#issuecomment-790040818
+ *
+ * The changes are:
+ * - Define a custom output path for webpack to emit files to
+ * - Serve the output path via a `files` entry in the karma config
+ *
+ * Without this, webpack correctly bundles and outputs the worker and wasm
+ * files, but they can't be loaded by the tests.  Trying to load the worker or
+ * wasm files returns a 404.
+ *
+ * Manually create an output path.  This is the same as the default
+ * karma-webpack config
+ * https://github.com/codymikol/karma-webpack?tab=readme-ov-file#default-webpack-configuration
+ */
+const outputPath = path.join(os.tmpdir(), '_karma_webpack_') + Math.floor(Math.random() * 1000000)
+
+/** @param {import('karma').Config} config */
 module.exports = function (config) {
   config.set({
     reporters: ['junit', 'coverage', 'spec'],
     client: {
       jasmine: {
-        // random: false, // don't randomize the order of tests
+        random: false, // don't randomize the order of tests
         stopOnFailure: false,
         failFast: false,
       },
@@ -16,6 +42,7 @@ module.exports = function (config) {
       captureConsole: true,
       clearContext: false,
     },
+    concurrency: 1,
     // Uncomment this out to capture all logging
     // browserConsoleLogOptions: {
     //   terminal: true,
@@ -50,25 +77,32 @@ module.exports = function (config) {
       'karma-spec-reporter',
     ],
     frameworks: ['jasmine', 'webpack'],
-    customHeaders: [
-      {
-        match: '.*.html',
-        name: 'Cross-Origin-Opener-Policy',
-        value: 'same-origin',
-      },
-      {
-        match: '.*.html',
-        name: 'Cross-Origin-Embedder-Policy',
-        value: 'require-corp',
-      },
-    ],
     files: [
-      'packages/streaming-image-volume-loader/test/**/*_test.js',
       'packages/core/test/**/*_test.js',
       'packages/tools/test/**/*_test.js',
+      // Serve dicomImageLoad test images
+      {
+        pattern: 'packages/dicomImageLoader/testImages/**/*',
+        watched: false,
+        included: false,
+        served: true
+      },
+      /**
+       * Required to allow karma to load wasm and worker files built via webpack.
+       * See the comment at the top of this file for more details.
+       */
+      {
+        pattern: `${outputPath}/**/*`,
+        included: false,
+        served: true,
+        watched: false
+      }
     ],
+    proxies: {
+      // Simplified path to access test images in tests
+      '/testImages/': '/base/packages/dicomImageLoader/testImages/',
+    },
     preprocessors: {
-      'packages/streaming-image-volume-loader/test/**/*_test.js': ['webpack'],
       'packages/core/test/**/*_test.js': ['webpack'],
       'packages/tools/test/**/*_test.js': ['webpack'],
     },
@@ -86,6 +120,15 @@ module.exports = function (config) {
     webpack: {
       devtool: 'eval-source-map',
       mode: 'development',
+      output: {
+        /**
+         * Override default karma-webpack output path with the one we defined
+         * above this allows webpack generated files including wasm and workers
+         * to be served by karma without this, the default config won't allow
+         * tests to load web workers or wasm files.
+         */
+        path: outputPath,
+      },
       module: {
         rules: [
           {
@@ -128,7 +171,7 @@ module.exports = function (config) {
         ],
       },
       experiments: {
-        asyncWebAssembly: true,
+        asyncWebAssembly: true
       },
       resolve: {
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
@@ -139,9 +182,7 @@ module.exports = function (config) {
         alias: {
           '@cornerstonejs/core': path.resolve('packages/core/src/index'),
           '@cornerstonejs/tools': path.resolve('packages/tools/src/index'),
-          '@cornerstonejs/streaming-image-volume-loader': path.resolve(
-            'packages/streaming-image-volume-loader/src/index'
-          ),
+          '@cornerstonejs/dicom-image-loader': path.resolve('packages/dicomImageLoader/src/index'),
         },
       },
     },

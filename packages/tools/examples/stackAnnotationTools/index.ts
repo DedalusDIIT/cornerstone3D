@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   getRenderingEngine,
 } from '@cornerstonejs/core';
@@ -33,6 +33,7 @@ const {
   PlanarFreehandROITool,
   EraserTool,
   KeyImageTool,
+  LabelTool,
   Enums: csToolsEnums,
 } = cornerstoneTools;
 
@@ -89,7 +90,7 @@ element.addEventListener(Events.CAMERA_MODIFIED, (_) => {
   }
 
   const { flipHorizontal, flipVertical } = viewport.getCamera();
-  const { rotation } = viewport.getProperties();
+  const { rotation } = viewport.getViewPresentation();
 
   rotationInfo.innerText = `Rotation: ${Math.round(rotation)}`;
   flipHorizontalInfo.innerText = `Flip horizontal: ${flipHorizontal}`;
@@ -124,6 +125,7 @@ const toolsNames = [
   PlanarFreehandROITool.toolName,
   EraserTool.toolName,
   KeyImageTool.toolName,
+  LabelTool.toolName,
 ];
 let selectedToolName = toolsNames[0];
 
@@ -197,8 +199,8 @@ addButtonToToolbar({
       renderingEngine.getViewport(viewportId)
     );
 
-    const { rotation } = viewport.getProperties();
-    viewport.setProperties({ rotation: rotation + 90 });
+    const { rotation } = viewport.getViewPresentation();
+    viewport.setViewPresentation({ rotation: rotation + 90 });
 
     viewport.render();
   },
@@ -209,7 +211,20 @@ addButtonToToolbar({
  */
 async function run() {
   // Init Cornerstone and related libraries
-  await initDemo();
+  const config = (window as any).IS_TILED
+    ? { core: { renderingEngineMode: 'tiled' } }
+    : {};
+  await initDemo(config);
+
+  const defaultToolStyles =
+    cornerstoneTools.annotation.config.style.getDefaultToolStyles();
+
+  defaultToolStyles.global.showHandlesAlways = true;
+  defaultToolStyles.global.showGrabCursor = true;
+
+  cornerstoneTools.annotation.config.style.setDefaultToolStyles(
+    defaultToolStyles
+  );
 
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(LengthTool);
@@ -225,7 +240,7 @@ async function run() {
   cornerstoneTools.addTool(PlanarFreehandROITool);
   cornerstoneTools.addTool(EraserTool);
   cornerstoneTools.addTool(KeyImageTool);
-
+  cornerstoneTools.addTool(LabelTool);
   // Define a tool group, which defines how mouse events map to tool commands for
   // Any viewport using the group
   const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
@@ -240,11 +255,13 @@ async function run() {
   toolGroup.addTool(BidirectionalTool.toolName);
   toolGroup.addTool(AngleTool.toolName);
   toolGroup.addTool(CobbAngleTool.toolName);
-  toolGroup.addTool(ArrowAnnotateTool.toolName);
+  toolGroup.addTool(ArrowAnnotateTool.toolName, {
+    arrowHeadStyle: 'standard',
+  });
   toolGroup.addTool(PlanarFreehandROITool.toolName);
   toolGroup.addTool(EraserTool.toolName);
   toolGroup.addTool(KeyImageTool.toolName);
-
+  toolGroup.addTool(LabelTool.toolName);
   // Set the initial state of the tools, here we set one tool active on left click.
   // This means left click will draw that tool.
   toolGroup.setToolActive(toolsNames[0], {
@@ -276,7 +293,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Instantiate a rendering engine

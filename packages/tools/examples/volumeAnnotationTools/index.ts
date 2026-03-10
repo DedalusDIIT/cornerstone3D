@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   setVolumesForViewports,
   volumeLoader,
@@ -20,7 +20,7 @@ console.warn(
 const {
   LengthTool,
   ToolGroupManager,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   ZoomTool,
   Enums: csToolsEnums,
 } = cornerstoneTools;
@@ -79,14 +79,17 @@ content.append(instructions);
  */
 async function run() {
   // Init Cornerstone and related libraries
-  await initDemo();
+  const config = (window as any).IS_TILED
+    ? { core: { renderingEngineMode: 'tiled' } }
+    : {};
+  await initDemo(config);
 
   const toolGroupId = 'STACK_TOOL_GROUP_ID';
 
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(LengthTool);
   cornerstoneTools.addTool(ZoomTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
+  cornerstoneTools.addTool(StackScrollTool);
 
   // Define a tool group, which defines how mouse events map to tool commands for
   // Any viewport using the group
@@ -95,7 +98,7 @@ async function run() {
   // Add the tools to the tool group and specify which volume they are pointing at
   toolGroup.addTool(LengthTool.toolName, { volumeId });
   toolGroup.addTool(ZoomTool.toolName, { volumeId });
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
 
   // Set the initial state of the tools, here we set one tool active on left click.
   // This means left click will draw that tool.
@@ -115,9 +118,13 @@ async function run() {
     ],
   });
 
-  // As the Stack Scroll mouse wheel is a tool using the `mouseWheelCallback`
-  // hook instead of mouse buttons, it does not need to assign any mouse button.
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Wheel, // Mouse Wheel
+      },
+    ],
+  });
 
   // Get Cornerstone imageIds and fetch metadata into RAM
   const imageIds = await createImageIdsAndCacheMetaData({
@@ -125,7 +132,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Instantiate a rendering engine
@@ -166,7 +173,7 @@ async function run() {
         orientation: {
           // Random oblique orientation
           viewUp: <Types.Point3>[
-            -0.5962687530844388, 0.5453181550345819, -0.5891448751239446,
+            0.7070766143169096, 0.009237043481146607, -0.7070766143169096,
           ],
           viewPlaneNormal: <Types.Point3>[
             -0.5962687530844388, 0.5453181550345819, -0.5891448751239446,

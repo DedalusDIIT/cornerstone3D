@@ -1,5 +1,6 @@
-import { getSegmentation } from '../../stateManagement/segmentation/segmentationState';
-import { ContourSegmentationAnnotation } from '../../types';
+import { setAnnotationLocked } from '../../stateManagement/annotation/annotationLocking';
+import { getSegmentation } from '../../stateManagement/segmentation/getSegmentation';
+import type { ContourSegmentationAnnotation } from '../../types';
 
 /**
  * Adds a contour segmentation annotation to the specified segmentation.
@@ -21,17 +22,26 @@ export function addContourSegmentationAnnotation(
   const { segmentationId, segmentIndex } = annotation.data.segmentation;
   const segmentation = getSegmentation(segmentationId);
 
-  if (!segmentation.representationData.CONTOUR) {
-    segmentation.representationData.CONTOUR = { annotationUIDsMap: new Map() };
+  if (!segmentation.representationData.Contour) {
+    segmentation.representationData.Contour = { annotationUIDsMap: new Map() };
   }
 
-  const { annotationUIDsMap } = segmentation.representationData.CONTOUR;
+  let { annotationUIDsMap } = segmentation.representationData.Contour;
 
-  let annotationsUIDsSet = annotationUIDsMap.get(segmentIndex);
+  if (!annotationUIDsMap) {
+    annotationUIDsMap = new Map();
+  }
+
+  let annotationsUIDsSet = annotationUIDsMap?.get(segmentIndex);
 
   if (!annotationsUIDsSet) {
     annotationsUIDsSet = new Set();
     annotationUIDsMap.set(segmentIndex, annotationsUIDsSet);
+  }
+
+  // Lock the annotation if the segment is locked.
+  if (segmentation.segments[segmentIndex].locked) {
+    setAnnotationLocked(annotation.annotationUID, true);
   }
 
   annotationUIDsMap.set(

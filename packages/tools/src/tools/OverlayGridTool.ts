@@ -17,23 +17,23 @@ import { getToolGroup } from '../store/ToolGroupManager';
 import { drawLine as drawLineSvg } from '../drawingSvg';
 import triggerAnnotationRenderForViewportIds from '../utilities/triggerAnnotationRenderForViewportIds';
 
-import {
+import type {
   PublicToolProps,
   ToolProps,
   SVGDrawingHelper,
   Annotation,
 } from '../types';
-import { StyleSpecifier } from '../types/AnnotationStyle';
+import type { StyleSpecifier } from '../types/AnnotationStyle';
 import AnnotationDisplayTool from './base/AnnotationDisplayTool';
 
 const { EPSILON } = CONSTANTS;
 
-export interface OverlayGridAnnotation extends Annotation {
+export type OverlayGridAnnotation = Annotation & {
   data: {
     viewportData: Map<string, object>;
     pointSets: Array<object>;
   };
-}
+};
 
 /**
  * @public
@@ -41,9 +41,7 @@ export interface OverlayGridAnnotation extends Annotation {
 class OverlayGridTool extends AnnotationDisplayTool {
   static toolName;
 
-  public touchDragCallback: any;
-  public mouseDragCallback: any;
-  _throttledCalculateCachedStats: any;
+  _throttledCalculateCachedStats: Function;
   isDrawing: boolean;
   isHandleOutsideImage: boolean;
 
@@ -123,7 +121,6 @@ class OverlayGridTool extends AnnotationDisplayTool {
     }
 
     triggerAnnotationRenderForViewportIds(
-      getRenderingEngine(viewportsInfo[0].renderingEngineId),
       viewportsInfo.map(({ viewportId }) => viewportId)
     );
   };
@@ -231,7 +228,7 @@ class OverlayGridTool extends AnnotationDisplayTool {
     );
 
     const pointSets = annotation.data.pointSets;
-    const viewportData = annotation.data.viewportData;
+    const viewportData = (<OverlayGridAnnotation>annotation).data.viewportData;
     for (let i = 0; i < sourceImageIds.length; i++) {
       // check if pointSets for the imageId was calculated. If not calculate and store
       const { pointSet1, pointSet2 } = pointSets[i];

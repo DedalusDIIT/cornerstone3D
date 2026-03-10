@@ -1,7 +1,9 @@
-import { IImageVolume, IVolumeLoadObject } from '../types';
+import type IBaseStreamingImageVolume from './IBaseStreamingImageVolume';
+import type IImageVolume from './IImageVolume';
+import type { IVolumeLoadObject } from './ILoadObject';
 
 interface ICachedVolume {
-  volume?: IImageVolume;
+  volume?: IImageVolume | IBaseStreamingImageVolume;
   volumeId: string;
   volumeLoadObject: IVolumeLoadObject;
   loaded: boolean;
@@ -9,4 +11,4 @@ interface ICachedVolume {
   sizeInBytes: number;
 }
 
-export default ICachedVolume;
+export type { ICachedVolume as default };

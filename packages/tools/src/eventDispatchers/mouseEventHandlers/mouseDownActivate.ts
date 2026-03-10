@@ -1,7 +1,7 @@
-import { state } from '../../store';
+import { state } from '../../store/state';
 import getActiveToolForMouseEvent from '../shared/getActiveToolForMouseEvent';
 import { setAnnotationSelected } from '../../stateManagement/annotation/annotationSelection';
-import { EventTypes } from '../../types';
+import type { EventTypes } from '../../types';
 
 /**
  * If the `mouseDown` handler does not consume an event,
@@ -29,7 +29,11 @@ export default function mouseDownActivate(
   }
 
   if (activeTool.addNewAnnotation) {
-    const annotation = activeTool.addNewAnnotation(evt, 'mouse');
-    setAnnotationSelected(annotation.annotationUID);
+    try {
+      const annotation = activeTool.addNewAnnotation(evt, 'mouse');
+      setAnnotationSelected(annotation.annotationUID);
+    } catch (error) {
+      console.warn('Error adding new annotation, viewport not ready:', error);
+    }
   }
 }

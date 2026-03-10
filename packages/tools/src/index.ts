@@ -2,14 +2,15 @@ import { init, destroy } from './init';
 import {
   addTool,
   removeTool,
-  state,
   ToolGroupManager,
   SynchronizerManager,
   Synchronizer,
   cancelActiveManipulations,
 } from './store';
-
+import { state } from './store/state';
+import * as store from './store';
 import * as CONSTANTS from './constants';
+import { version } from './version';
 
 // Name spaces
 import * as synchronizers from './synchronizers';
@@ -19,6 +20,7 @@ import * as cursors from './cursors';
 import * as Types from './types';
 import * as annotation from './stateManagement/annotation';
 import * as segmentation from './stateManagement/segmentation';
+import * as splines from './tools/annotation/splines';
 
 import {
   BaseTool,
@@ -26,20 +28,23 @@ import {
   AnnotationDisplayTool,
   PanTool,
   TrackballRotateTool,
+  VolumeCroppingTool,
+  VolumeCroppingControlTool,
   DragProbeTool,
   WindowLevelTool,
   ZoomTool,
   StackScrollTool,
+  SegmentBidirectionalTool,
   PlanarRotateTool,
-  StackScrollMouseWheelTool,
-  VolumeRotateMouseWheelTool,
   MIPJumpToClickTool,
+  LabelTool,
   LengthTool,
   HeightTool,
   ProbeTool,
   RectangleROITool,
   EllipticalROITool,
   CircleROITool,
+  ETDRSGridTool,
   SplineROITool,
   SplineContourSegmentationTool,
   BidirectionalTool,
@@ -57,24 +62,31 @@ import {
   RectangleROIThresholdTool,
   RectangleROIStartEndThresholdTool,
   CircleROIStartEndThresholdTool,
-  SegmentationDisplayTool,
   BrushTool,
   AngleTool,
   CobbAngleTool,
   UltrasoundDirectionalTool,
+  UltrasoundPleuraBLineTool,
   MagnifyTool,
   AdvancedMagnifyTool,
   ReferenceCursors,
-  ReferenceLines,
   PaintFillTool,
   ScaleOverlayTool,
   OrientationMarkerTool,
+  OrientationControllerTool,
   OverlayGridTool,
   SegmentationIntersectionTool,
   EraserTool,
   SculptorTool,
   SegmentSelectTool,
   WindowLevelRegionTool,
+  VolumeRotateTool,
+  RegionSegmentPlusTool,
+  RegionSegmentTool,
+  WholeBodySegmentTool,
+  LabelmapBaseTool,
+  SegmentLabelTool,
+  LabelMapEditWithContourTool,
 } from './tools';
 
 import VideoRedactionTool from './tools/annotation/VideoRedactionTool';
@@ -95,17 +107,19 @@ export {
   AnnotationDisplayTool,
   // Manipulation Tools
   PanTool,
+  SegmentBidirectionalTool,
   TrackballRotateTool,
+  VolumeCroppingTool,
+  VolumeCroppingControlTool,
   DragProbeTool,
   WindowLevelTool,
   WindowLevelRegionTool,
   ZoomTool,
   StackScrollTool,
   PlanarRotateTool,
-  StackScrollMouseWheelTool,
-  VolumeRotateMouseWheelTool,
   MIPJumpToClickTool,
   // Annotation Tools
+  LabelTool,
   LengthTool,
   HeightTool,
   CrosshairsTool,
@@ -116,6 +130,7 @@ export {
   RectangleROITool,
   EllipticalROITool,
   CircleROITool,
+  ETDRSGridTool,
   SplineROITool,
   SplineContourSegmentationTool,
   BidirectionalTool,
@@ -127,16 +142,15 @@ export {
   AngleTool,
   CobbAngleTool,
   UltrasoundDirectionalTool,
+  UltrasoundPleuraBLineTool,
   KeyImageTool,
   MagnifyTool,
   AdvancedMagnifyTool,
   ReferenceCursors,
-  ReferenceLines,
   ScaleOverlayTool,
   SculptorTool,
   EraserTool,
   // Segmentation Display
-  SegmentationDisplayTool,
   // Segmentation Editing Tools
   RectangleScissorsTool,
   CircleScissorsTool,
@@ -146,7 +160,9 @@ export {
   CircleROIStartEndThresholdTool,
   BrushTool,
   OrientationMarkerTool,
+  OrientationControllerTool,
   SegmentSelectTool,
+  SegmentLabelTool,
   // Synchronizers
   synchronizers,
   Synchronizer,
@@ -156,6 +172,8 @@ export {
   state,
   // ToolGroups
   ToolGroupManager,
+  // tools,
+  store,
   // Enums
   Enums,
   // Constants
@@ -169,4 +187,14 @@ export {
   // Utilities
   utilities,
   cursors,
+  VolumeRotateTool,
+  RegionSegmentPlusTool,
+  RegionSegmentTool,
+  WholeBodySegmentTool,
+  LabelmapBaseTool,
+  LabelMapEditWithContourTool,
+  // Spline classes
+  splines,
+  // Version
+  version,
 };

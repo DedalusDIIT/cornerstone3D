@@ -3,20 +3,17 @@ import vtkMatrixBuilder from '@kitware/vtk.js/Common/Core/MatrixBuilder';
 import vtkMath from '@kitware/vtk.js/Common/Core/Math';
 import vtkPlane from '@kitware/vtk.js/Common/DataModel/Plane';
 
+import type { mat4, ReadonlyVec3 } from 'gl-matrix';
 import { vec2, vec3 } from 'gl-matrix';
-import _cloneDeep from 'lodash.clonedeep';
 
 import Events from '../enums/Events';
 import ViewportStatus from '../enums/ViewportStatus';
 import ViewportType from '../enums/ViewportType';
 import renderingEngineCache from './renderingEngineCache';
-import {
-  triggerEvent,
-  planar,
-  isImageActor,
-  actorIsA,
-  isEqual,
-} from '../utilities';
+import { actorIsA, isImageActor } from '../utilities/actorCheck';
+import triggerEvent from '../utilities/triggerEvent';
+import * as planar from '../utilities/planar';
+import isEqual from '../utilities/isEqual';
 import hasNaNValues from '../utilities/hasNaNValues';
 import { RENDERING_DEFAULTS } from '../constants';
 import type {
@@ -32,19 +29,27 @@ import type {
   ViewPresentation,
   ViewReference,
   ViewportProperties,
+  ImageActor,
 } from '../types';
 import type {
   ViewportInput,
-  IViewport,
   ViewReferenceSpecifier,
   ReferenceCompatibleOptions,
   ViewPresentationSelector,
   DataSetOptions,
+  PlaneRestriction,
 } from '../types/IViewport';
 import type { vtkSlabCamera } from './vtkClasses/vtkSlabCamera';
-import { getConfiguration } from '../init';
-import IImageCalibration from '../types/IImageCalibration';
+import type IImageCalibration from '../types/IImageCalibration';
 import { InterpolationType } from '../enums';
+import type vtkRenderer from '@kitware/vtk.js/Rendering/Core/Renderer';
+import type vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
+import type vtkImageData from '@kitware/vtk.js/Common/DataModel/ImageData';
+import type vtkMapper from '@kitware/vtk.js/Rendering/Core/Mapper';
+import { deepClone } from '../utilities/deepClone';
+import { updatePlaneRestriction } from '../utilities/updatePlaneRestriction';
+import { getCubeSizeInView } from '../utilities/getPlaneCubeIntersectionDimensions';
+import { getConfiguration } from '../init';
 
 /**
  * An object representing a single viewport, which is a camera
@@ -55,9 +60,9 @@ import { InterpolationType } from '../enums';
  * which is camera properties/methods, vtk.js actors, and other common
  * logic.
  */
-class Viewport implements IViewport {
+class Viewport {
   /**
-   * CameraViewPresentation is a view preentation selector that has all the
+   * CameraViewPresentation is a view presentation selector that has all the
    * camera related presentation selections, and would typically be used for
    * choosing presentation information between two viewports showing the same
    * type of orientation of a view, such as the CT, PT and fusion views in the
@@ -94,7 +99,10 @@ class Viewport implements IViewport {
   /**
    * The amount by which the images are inset in a viewport by default.
    */
-  protected insetImageMultiplier = 1.1;
+  protected insetImageMultiplier = getConfiguration().rendering
+    ?.useLegacyCameraFOV
+    ? 1.1
+    : 1;
 
   protected flipHorizontal = false;
   protected flipVertical = false;
@@ -113,9 +121,9 @@ class Viewport implements IViewport {
   /** sHeight of viewport on the offscreen canvas */
   sHeight: number;
   /** a Map containing the actor uid and actors */
-  _actors: Map<string, any>;
+  _actors: Map<string, ActorEntry>;
   /** Default options for the viewport which includes orientation, viewPlaneNormal and backgroundColor */
-  readonly defaultOptions: Record<string, any>;
+  readonly defaultOptions: ViewportInputOptions;
   /** options for the viewport which includes orientation axis, backgroundColor and displayArea */
   options: ViewportInputOptions;
   /** informs if a new actor was added before a resetCameraClippingRange phase */
@@ -151,11 +159,12 @@ class Viewport implements IViewport {
       this.renderingEngineId
     );
 
-    this.defaultOptions = _cloneDeep(props.defaultOptions);
+    this.defaultOptions = deepClone(props.defaultOptions);
     this.suppressEvents = props.defaultOptions.suppressEvents
       ? props.defaultOptions.suppressEvents
       : false;
-    this.options = _cloneDeep(props.defaultOptions);
+    //this.options = structuredClone(props.defaultOptions);
+    this.options = deepClone(props.defaultOptions);
     this.isDisabled = false;
   }
 
@@ -176,6 +185,16 @@ class Viewport implements IViewport {
     return false;
   }
 
+  /**
+   * Returns whether the viewport supports changing orientation (e.g. via setCamera
+   * with viewPlaneNormal/viewUp). Used by tools like OrientationControllerTool to
+   * decide where to show interactive orientation markers.
+   */
+  public isOrientationChangeable(): boolean {
+    return false;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private viewportWidgets = new Map() as Map<string, any>;
 
   public addWidget = (widgetId, widget) => {
@@ -188,6 +207,15 @@ class Viewport implements IViewport {
 
   public getWidgets = () => {
     return Array.from(this.viewportWidgets.values());
+  };
+
+  /**
+   * Get render passes for this viewport.
+   * Viewports can override this to provide custom render passes (e.g., for sharpening).
+   * @returns Array of VTK render passes or null if no custom passes are needed
+   */
+  public getRenderPasses = () => {
+    return null;
   };
 
   public removeWidgets = () => {
@@ -223,6 +251,34 @@ class Viewport implements IViewport {
   }
 
   /**
+   *  This applies a color transform as an svg filter to the output image.
+   */
+  protected setColorTransform(voiRange, averageWhite) {
+    let feFilter = null;
+    if (!voiRange && !averageWhite) {
+      return;
+    }
+    const white = averageWhite || [255, 255, 255];
+    const maxWhite = Math.max(...white);
+    const scaleWhite = white.map((c) => maxWhite / c);
+    const { lower = 0, upper = 255 } = voiRange || {};
+    const wlScale = (upper - lower + 1) / 255;
+    const wlDelta = lower / 255;
+    feFilter = `url('data:image/svg+xml,\
+      <svg xmlns="http://www.w3.org/2000/svg">\
+        <filter id="colour" color-interpolation-filters="linearRGB">\
+        <feColorMatrix type="matrix" \
+        values="\
+          ${scaleWhite[0] * wlScale} 0 0 0 ${wlDelta} \
+          0 ${scaleWhite[1] * wlScale} 0 0 ${wlDelta} \
+          0 0 ${scaleWhite[2] * wlScale} 0 ${wlDelta} \
+          0 0 0 1 0" />\
+        </filter>\
+      </svg>#colour')`;
+    return feFilter;
+  }
+
+  /**
    * Returns the rendering engine driving the `Viewport`.
    *
    * @returns The RenderingEngine instance.
@@ -236,14 +292,14 @@ class Viewport implements IViewport {
    *
    * @returns The `vtkRenderer` for the `Viewport`.
    */
-  public getRenderer(): any {
+  public getRenderer(): vtkRenderer {
     const renderingEngine = this.getRenderingEngine();
 
     if (!renderingEngine || renderingEngine.hasBeenDestroyed) {
       throw new Error('Rendering engine has been destroyed');
     }
 
-    return renderingEngine.offscreenMultiRenderWindow.getRenderer(this.id);
+    return renderingEngine.offscreenMultiRenderWindow?.getRenderer(this.id);
   }
 
   /**
@@ -262,7 +318,7 @@ class Viewport implements IViewport {
    * @param immediate - If `true`, renders the viewport after the options are set.
    */
   public setOptions(options: ViewportInputOptions, immediate = false): void {
-    this.options = <ViewportInputOptions>_cloneDeep(options);
+    this.options = structuredClone(options);
 
     // TODO When this is needed we need to move the camera position.
     // We can steal some logic from the tools we build to do this.
@@ -280,7 +336,7 @@ class Viewport implements IViewport {
    * @param immediate - If `true`, renders the viewport after the options are reset.
    */
   public reset(immediate = false) {
-    this.options = _cloneDeep(this.defaultOptions);
+    this.options = structuredClone(this.defaultOptions);
 
     // TODO When this is needed we need to move the camera position.
     // We can steal some logic from the tools we build to do this.
@@ -288,6 +344,17 @@ class Viewport implements IViewport {
     if (immediate) {
       this.render();
     }
+  }
+
+  public getSliceViewInfo(): {
+    width: number;
+    height: number;
+    sliceIndex: number;
+    slicePlane: number;
+    sliceToIndexMatrix: mat4;
+    indexToSliceMatrix: mat4;
+  } {
+    throw new Error('Method not implemented.');
   }
 
   /**
@@ -321,7 +388,7 @@ class Viewport implements IViewport {
     const dimensions = imageData.getDimensions();
     const middleIJK = dimensions.map((d) => Math.floor(d / 2));
 
-    const idx = [middleIJK[0], middleIJK[1], middleIJK[2]];
+    const idx = [middleIJK[0], middleIJK[1], middleIJK[2]] as ReadonlyVec3;
     const centeredFocalPoint = imageData.indexToWorld(idx, vec3.create());
 
     const resetFocalPoint = this._getFocalPointForResetCamera(
@@ -417,7 +484,7 @@ class Viewport implements IViewport {
     this.render();
   }
 
-  private getDefaultImageData(): any {
+  private getDefaultImageData(): vtkImageData {
     const actorEntry = this.getDefaultActor();
 
     if (actorEntry && isImageActor(actorEntry)) {
@@ -437,7 +504,7 @@ class Viewport implements IViewport {
    * Get all the actors in the viewport
    * @returns An array of ActorEntry objects.
    */
-  public getActors(): Array<ActorEntry> {
+  public getActors(): ActorEntry[] {
     return Array.from(this._actors.values());
   }
 
@@ -445,7 +512,7 @@ class Viewport implements IViewport {
    * Returns an array of unique identifiers for all the actors in the viewport.
    * @returns An array of strings
    */
-  public getActorUIDs(): Array<string> {
+  public getActorUIDs(): string[] {
     return Array.from(this._actors.keys());
   }
 
@@ -456,6 +523,28 @@ class Viewport implements IViewport {
    */
   public getActor(actorUID: string): ActorEntry {
     return this._actors.get(actorUID);
+  }
+
+  /**
+   * Retrieves an image actor from the viewport actors.
+   *
+   * @param volumeId - Optional. The ID of the volume to find the corresponding image actor.
+   * @returns The image actor if found, otherwise null.
+   */
+  public getImageActor(volumeId?: string): ImageActor | null {
+    const actorEntries = this.getActors();
+
+    let actorEntry = actorEntries[0];
+    if (volumeId) {
+      actorEntry = actorEntries.find((a) => a.referencedId === volumeId);
+    }
+
+    if (!actorEntry || !isImageActor(actorEntry)) {
+      return null;
+    }
+
+    const actor = actorEntry.actor as ImageActor;
+    return actor;
   }
 
   /**
@@ -483,49 +572,77 @@ class Viewport implements IViewport {
    * It removes all actors from the viewport and then adds the actors from the array.
    * @param actors - An array of ActorEntry objects.
    */
-  public setActors(actors: Array<ActorEntry>): void {
+  public setActors(actors: ActorEntry[]): void {
+    const currentActors = this.getActors();
     this.removeAllActors();
-    const resetCameraPanAndZoom = true;
     // when we set the actor we need to reset the camera to initialize the
     // camera focal point with the bounds of the actors.
-    this.addActors(actors, resetCameraPanAndZoom);
+    this.addActors(actors, { resetCamera: true });
+
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: currentActors,
+      addedActors: actors,
+      currentActors: actors,
+    });
   }
 
   /**
    * Remove the actor from the viewport
    * @param actorUID - The unique identifier for the actor.
+   * @returns The removed actor entry or undefined if it didn't exist
    */
-  _removeActor(actorUID: string): void {
+  _removeActor(actorUID: string): ActorEntry | undefined {
     const actorEntry = this.getActor(actorUID);
+
     if (!actorEntry) {
-      console.warn(`Actor ${actorUID} does not exist for this viewport`);
+      console.warn(
+        `Actor ${actorUID} does not exist in ${this.id}, can't remove`
+      );
       return;
     }
+
     const renderer = this.getRenderer();
-    renderer.removeViewProp(actorEntry.actor); // removeActor not implemented in vtk?
+    renderer.removeActor(actorEntry.actor as vtkActor);
     this._actors.delete(actorUID);
+
+    return actorEntry;
   }
 
   /**
    * Remove the actors with the given UIDs from the viewport
    * @param actorUIDs - An array of actor UIDs to remove.
    */
-  public removeActors(actorUIDs: Array<string>): void {
+  public removeActors(actorUIDs: string[]): void {
+    const removedActors: ActorEntry[] = [];
+
     actorUIDs.forEach((actorUID) => {
-      this._removeActor(actorUID);
+      const removedActor = this._removeActor(actorUID);
+      if (removedActor) {
+        removedActors.push(removedActor);
+      }
+    });
+
+    const currentActors = this.getActors();
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors,
+      addedActors: [],
+      currentActors,
     });
   }
 
   /**
    * Add a list of actors (actor entries) to the viewport
-   * @param resetCameraPanAndZoom - force reset pan and zoom of the camera,
+   * @param resetCamera - force reset pan and zoom of the camera,
    *        default value is false.
    * @param actors - An array of ActorEntry objects.
    */
   public addActors(
-    actors: Array<ActorEntry>,
-    resetCameraPanAndZoom = false
+    actors: ActorEntry[],
+    options: { resetCamera?: boolean } = {}
   ): void {
+    const { resetCamera = false } = options;
     const renderingEngine = this.getRenderingEngine();
     if (!renderingEngine || renderingEngine.hasBeenDestroyed) {
       console.warn(
@@ -534,10 +651,32 @@ class Viewport implements IViewport {
       return;
     }
 
-    actors.forEach((actor) => this.addActor(actor));
+    actors.forEach((actor) => {
+      this.addActor(actor);
+    });
 
-    // set the clipping planes for the actors
-    this.resetCamera(resetCameraPanAndZoom, resetCameraPanAndZoom);
+    // In the case of loading a new volume with WADO-URI, we may not have loaded
+    // metadata for all imageIds, as they are streaming in. The
+    // getViewReference() call uses getClosestImageId() in its call stack, which
+    // will error in that scenario as it tries to loop over all imageId
+    // metadata. So only call getViewReference if necessary.
+    if (!resetCamera) {
+      const prevViewPresentation = this.getViewPresentation();
+      const prevViewRef = this.getViewReference();
+      this.resetCamera();
+      this.setViewReference(prevViewRef);
+      this.setViewPresentation(prevViewPresentation);
+    } else {
+      this.resetCamera();
+    }
+
+    // Trigger ACTORS_CHANGED event after adding actors
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: [],
+      addedActors: actors,
+      currentActors: this.getActors(),
+    });
   }
 
   /**
@@ -569,20 +708,38 @@ class Viewport implements IViewport {
     }
 
     const renderer = this.getRenderer();
-    renderer?.addActor(actor);
+    renderer?.addActor(actor as vtkActor);
     this._actors.set(actorUID, Object.assign({}, actorEntry));
 
     // when we add an actor we should update the camera clipping range and
     // clipping planes as well
     this.updateCameraClippingPlanesAndRange();
+
+    // Trigger ACTORS_CHANGED event for individual actor addition
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: [],
+      addedActors: [actorEntry],
+      currentActors: this.getActors(),
+    });
   }
 
   /**
    * Remove all actors from the renderer
    */
   public removeAllActors(): void {
+    const currentActors = this.getActors();
     this.getRenderer()?.removeAllViewProps();
     this._actors = new Map();
+
+    // Trigger ACTORS_CHANGED event when removing all actors
+    triggerEvent(this.element, Events.ACTORS_CHANGED, {
+      viewportId: this.id,
+      removedActors: currentActors,
+      addedActors: [],
+      currentActors: [],
+    });
+
     return;
   }
 
@@ -590,9 +747,10 @@ class Viewport implements IViewport {
    * Reset the camera to the default viewport camera without firing events
    */
   protected resetCameraNoEvent(): void {
+    const savedValue = this._suppressCameraModifiedEvents; // save the value pf the flag to restore it later
     this._suppressCameraModifiedEvents = true;
     this.resetCamera();
-    this._suppressCameraModifiedEvents = false;
+    this._suppressCameraModifiedEvents = savedValue;
   }
 
   /**
@@ -600,9 +758,10 @@ class Viewport implements IViewport {
    * @param camera - The camera to use for the viewport.
    */
   protected setCameraNoEvent(camera: ICamera): void {
+    const savedValue = this._suppressCameraModifiedEvents; // save the value pf the flag to restore it later
     this._suppressCameraModifiedEvents = true;
     this.setCamera(camera);
-    this._suppressCameraModifiedEvents = false;
+    this._suppressCameraModifiedEvents = savedValue;
   }
 
   /**
@@ -696,7 +855,7 @@ class Viewport implements IViewport {
       this.setDisplayAreaScale(displayArea);
     } else {
       this.setInterpolationType(
-        this.getProperties()?.interpolationType || InterpolationType.LINEAR
+        this.getProperties()?.interpolationType ?? InterpolationType.LINEAR
       );
       this.setDisplayAreaFit(displayArea);
     }
@@ -776,8 +935,8 @@ class Viewport implements IViewport {
       return;
     }
     this.setCamera({
-      focalPoint: <Point3>vec3.add(vec3.create(), focalPoint, focalChange),
-      position: <Point3>vec3.add(vec3.create(), position, focalChange),
+      focalPoint: vec3.add(vec3.create(), focalPoint, focalChange) as Point3,
+      position: vec3.add(vec3.create(), position, focalChange) as Point3,
     });
   }
 
@@ -815,14 +974,16 @@ class Viewport implements IViewport {
     }
     const canvasWidth = this.sWidth / devicePixelRatio;
     const canvasHeight = this.sHeight / devicePixelRatio;
-    const dimensions = imageData.getDimensions();
-    const canvasZero = this.worldToCanvas(imageData.indexToWorld([0, 0, 0]));
+    const dimensions = imageData.getDimensions() as ReadonlyVec3;
+    const canvasZero = this.worldToCanvas(
+      imageData.indexToWorld([0, 0, 0]) as Point3
+    );
     const canvasEdge = this.worldToCanvas(
       imageData.indexToWorld([
-        dimensions[0] - 1,
-        dimensions[1] - 1,
+        dimensions[0],
+        dimensions[1],
         dimensions[2],
-      ])
+      ]) as Point3
     );
 
     const canvasImage = [
@@ -831,20 +992,29 @@ class Viewport implements IViewport {
     ];
     const [imgWidth, imgHeight] = canvasImage;
 
+    let zoom = this.getZoom() / this.insetImageMultiplier;
     if (imageArea) {
       const [areaX, areaY] = imageArea;
+
+      const currentScale = Math.max(
+        Math.abs(imgWidth / canvasWidth),
+        Math.abs(imgHeight / canvasHeight)
+      );
       const requireX = Math.abs((areaX * imgWidth) / canvasWidth);
       const requireY = Math.abs((areaY * imgHeight) / canvasHeight);
-
       const initZoom = this.getZoom();
       const fitZoom = this.getZoom(this.fitToCanvasCamera);
-      const absZoom = Math.min(1 / requireX, 1 / requireY);
-      const applyZoom = (absZoom * initZoom) / fitZoom;
-      this.setZoom(applyZoom, false);
-    }
 
-    // getting the image info
-    // getting the image info
+      const absZoom =
+        requireX > requireY ? currentScale / requireX : currentScale / requireY;
+      const applyZoom = (absZoom * initZoom) / fitZoom;
+
+      zoom = applyZoom;
+      // Don't set as initial camera because then the zoom interactions don't
+      // work consistently.
+      // TODO: Add a better method to handle initial camera
+      this.setZoom(this.insetImageMultiplier * zoom, false);
+    }
     if (imageCanvasPoint) {
       const { imagePoint, canvasPoint = imagePoint || [0.5, 0.5] } =
         imageCanvasPoint;
@@ -853,9 +1023,15 @@ class Viewport implements IViewport {
       const canvasPanY = canvasHeight * (canvasY - 0.5);
 
       const [imageX, imageY] = imagePoint || canvasPoint;
-      const useZoom = 1;
-      const imagePanX = useZoom * imgWidth * (0.5 - imageX);
-      const imagePanY = useZoom * imgHeight * (0.5 - imageY);
+      const useZoom = zoom;
+      const imagePanX =
+        this.insetImageMultiplier * useZoom * imgWidth * (0.5 - imageX);
+      const imagePanY =
+        this.insetImageMultiplier * useZoom * imgHeight * (0.5 - imageY);
+
+      // const imagePanX =
+      //   (zoom * imgWidth * (0.5 - imageX) * canvasHeight) / imgHeight;
+      // const imagePanY = zoom * canvasHeight * (0.5 - imageY);
 
       const newPositionX = imagePanX + canvasPanX;
       const newPositionY = imagePanY + canvasPanY;
@@ -878,18 +1054,27 @@ class Viewport implements IViewport {
    * resetPan and resetZoom are true it places the focal point at the center of
    * the volume (or slice); otherwise, only the camera zoom and camera Pan or Zoom
    * is reset for the current view.
-   * @param resetPan - If true, the camera focal point is reset to the center of the volume (slice)
-   * @param resetZoom - If true, the camera zoom is reset to the default zoom
-   * @param storeAsInitialCamera - If true, reset camera is stored as the initial camera (to allow differences to
+   * @param options - The reset options
+   * @param options.resetPan - If true, the camera focal point is reset to the center of the volume (slice)
+   * @param options.resetZoom - If true, the camera zoom is reset to the default zoom
+   * @param options.resetToCenter - If true, the camera is reset to the center of the volume (slice)
+   * @param options.storeAsInitialCamera - If true, reset camera is stored as the initial camera (to allow differences to
    *   be detected for pan/zoom values)
    * @returns boolean
    */
-  public resetCamera(
-    resetPan = true,
-    resetZoom = true,
-    resetToCenter = true,
-    storeAsInitialCamera = true
-  ): boolean {
+  public resetCamera(options?: {
+    resetPan?: boolean;
+    resetZoom?: boolean;
+    resetToCenter?: boolean;
+    storeAsInitialCamera?: boolean;
+  }): boolean {
+    const {
+      resetPan = true,
+      resetZoom = true,
+      resetToCenter = true,
+      storeAsInitialCamera = true,
+    } = options || {};
+
     const renderer = this.getRenderer();
 
     // fix the flip right away, since we rely on the viewPlaneNormal and
@@ -903,29 +1088,25 @@ class Viewport implements IViewport {
       flipVertical: false,
     });
 
-    const previousCamera = _cloneDeep(this.getCamera());
-    const bounds = renderer.computeVisiblePropBounds();
-    const focalPoint = <Point3>[0, 0, 0];
-    const imageData = this.getDefaultImageData();
+    const previousCamera = this.getCamera();
+    let bounds;
+    const defaultActor = this.getDefaultActor();
 
-    // The bounds are used to set the clipping view, which is then used to
-    // figure out the center point of each image.  This needs to be the depth
-    // center, so the bounds need to be extended by the spacing such that the
-    // depth center is in the middle of each image.
-    if (imageData) {
-      const spc = imageData.getSpacing();
-
-      bounds[0] = bounds[0] + spc[0] / 2;
-      bounds[1] = bounds[1] - spc[0] / 2;
-      bounds[2] = bounds[2] + spc[1] / 2;
-      bounds[3] = bounds[3] - spc[1] / 2;
-      bounds[4] = bounds[4] + spc[2] / 2;
-      bounds[5] = bounds[5] - spc[2] / 2;
+    if (defaultActor && isImageActor(defaultActor)) {
+      // Use the default actor's bounds
+      const imageData = defaultActor.actor.getMapper().getInputData();
+      bounds = imageData.getBounds();
+    } else {
+      // Fallback to all actors if no default image actor is found
+      bounds = renderer.computeVisiblePropBounds();
     }
 
+    const focalPoint = [0, 0, 0] as Point3;
+    const imageData = this.getDefaultImageData();
+
     const activeCamera = this.getVtkActiveCamera();
-    const viewPlaneNormal = <Point3>activeCamera.getViewPlaneNormal();
-    const viewUp = <Point3>activeCamera.getViewUp();
+    const viewPlaneNormal = activeCamera.getViewPlaneNormal() as Point3;
+    const viewUp = activeCamera.getViewUp() as Point3;
 
     // Reset the perspective zoom factors, otherwise subsequent zooms will cause
     // the view angle to become very small and cause bad depth sorting.
@@ -937,19 +1118,28 @@ class Viewport implements IViewport {
 
     if (imageData) {
       const dimensions = imageData.getDimensions();
-      // TODO: This should be the line below, but that causes issues with existing
-      // tests.  Not doing that adds significant fuzziness on rendering, so at
-      // some point it should be fixed.
-      // const middleIJK = dimensions.map((d) => Math.floor((d-1) / 2));
       const middleIJK = dimensions.map((d) => Math.floor(d / 2));
-
-      const idx = [middleIJK[0], middleIJK[1], middleIJK[2]];
+      const idx = [middleIJK[0], middleIJK[1], middleIJK[2]] as ReadonlyVec3;
       // Modifies the focal point in place, as this hits the vtk indexToWorld function
       imageData.indexToWorld(idx, focalPoint);
     }
 
-    const { widthWorld, heightWorld } =
-      this._getWorldDistanceViewUpAndViewRight(bounds, viewUp, viewPlaneNormal);
+    let { widthWorld, heightWorld } = imageData
+      ? getCubeSizeInView(imageData, viewPlaneNormal, viewUp)
+      : this._getWorldDistanceViewUpAndViewRight(
+          bounds,
+          viewUp,
+          viewPlaneNormal
+        );
+
+    if (imageData) {
+      const spacing = imageData.getSpacing();
+      // This change corresponds to the spacing calculation for previous version
+      // stack viewports, but is technically incorrect and results in an image
+      // a tiny bit too large for the viewport.
+      widthWorld = Math.max(spacing[0], widthWorld - spacing[0]);
+      heightWorld = Math.max(spacing[1], heightWorld - spacing[1]);
+    }
 
     const canvasSize = [this.sWidth, this.sHeight];
 
@@ -1013,9 +1203,9 @@ class Viewport implements IViewport {
       clippingRange: clippingRangeToUse,
     });
 
-    const modifiedCamera = _cloneDeep(this.getCamera());
+    const modifiedCamera = this.getCamera();
 
-    this.setFitToCanvasCamera(_cloneDeep(this.getCamera()));
+    this.setFitToCanvasCamera(this.getCamera());
 
     if (storeAsInitialCamera) {
       this.setInitialCamera(modifiedCamera);
@@ -1032,18 +1222,19 @@ class Viewport implements IViewport {
 
     // Here to let parallel/distributed compositing intercept
     // and do the right thing.
+    // @ts-expect-error
     renderer.invokeEvent(RESET_CAMERA_EVENT);
 
     this.triggerCameraModifiedEventIfNecessary(previousCamera, modifiedCamera);
 
     if (
       imageData &&
-      this.options?.displayArea &&
+      this.options.displayArea &&
       resetZoom &&
       resetPan &&
       resetToCenter
     ) {
-      this.setDisplayArea(this.options?.displayArea);
+      this.setDisplayArea(this.options.displayArea);
     }
 
     return true;
@@ -1078,19 +1269,25 @@ class Viewport implements IViewport {
    * value is [0,0].
    */
   public getPan(initialCamera = this.initialCamera): Point2 {
+    if (!initialCamera) {
+      return [0, 0];
+    }
+
     const activeCamera = this.getVtkActiveCamera();
     const focalPoint = activeCamera.getFocalPoint() as Point3;
 
     const zero3 = this.canvasToWorld([0, 0]);
     const initialCanvasFocal = this.worldToCanvas(
-      <Point3>vec3.subtract([0, 0, 0], initialCamera.focalPoint, zero3)
+      vec3.subtract([0, 0, 0], initialCamera.focalPoint, zero3) as Point3
     );
     const currentCanvasFocal = this.worldToCanvas(
-      <Point3>vec3.subtract([0, 0, 0], focalPoint, zero3)
+      vec3.subtract([0, 0, 0], focalPoint, zero3) as Point3
     );
-    const result = <Point2>(
-      vec2.subtract([0, 0], initialCanvasFocal, currentCanvasFocal)
-    );
+    const result = vec2.subtract(
+      [0, 0],
+      initialCanvasFocal,
+      currentCanvasFocal
+    ) as Point2;
     return result;
   }
 
@@ -1102,12 +1299,17 @@ class Viewport implements IViewport {
     throw new Error('Not implemented');
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public getImageData(): any {
+    throw new Error('Not implemented');
+  }
+
   /**
    * Gets a referenced image url of some sort - could be a real image id, or
    * could be a URL with parameters. Regardless it refers to the currently displaying
    * image as a string value.
    */
-  public getReferenceId(_specifier?: ViewReferenceSpecifier): string {
+  public getViewReferenceId(_specifier?: ViewReferenceSpecifier): string {
     return null;
   }
 
@@ -1129,7 +1331,7 @@ class Viewport implements IViewport {
     }
     const delta = vec3.subtract(
       vec3.create(),
-      this.canvasToWorld(<Point2>delta2),
+      this.canvasToWorld(delta2 as Point2),
       zero3
     );
     const newFocal = vec3.subtract(vec3.create(), focalPoint, delta);
@@ -1211,11 +1413,11 @@ class Viewport implements IViewport {
       z += point_z;
     });
 
-    const newFocalPoint = <Point3>[
+    const newFocalPoint = [
       x / intersections.length,
       y / intersections.length,
       z / intersections.length,
-    ];
+    ] as Point3;
     // Set the focal point on the average of the intersection points
     return newFocalPoint;
   }
@@ -1226,7 +1428,7 @@ class Viewport implements IViewport {
    * @returns an HTMLCanvasElement.
    */
   public getCanvas(): HTMLCanvasElement {
-    return <HTMLCanvasElement>this.canvas;
+    return this.canvas;
   }
   /**
    * Gets the active vtkCamera for the viewport.
@@ -1236,7 +1438,51 @@ class Viewport implements IViewport {
   protected getVtkActiveCamera(): vtkCamera | vtkSlabCamera {
     const renderer = this.getRenderer();
 
+    if (!renderer) {
+      console.warn('No renderer found for the viewport');
+      return null;
+    }
+
     return renderer.getActiveCamera();
+  }
+
+  protected getCameraNoRotation(): ICamera {
+    const vtkCamera = this.getVtkActiveCamera();
+
+    // Helper function to replace NaN vectors with defaults
+    const sanitizeVector = (vector: Point3, defaultValue: Point3): Point3 => {
+      return vector.some((v) => isNaN(v)) ? defaultValue : vector;
+    };
+
+    const viewUp = sanitizeVector(
+      [...vtkCamera.getViewUp()] as Point3,
+      [0, 1, 0]
+    );
+    const viewPlaneNormal = sanitizeVector(
+      [...vtkCamera.getViewPlaneNormal()] as Point3,
+      [0, 0, -1]
+    );
+    const position = sanitizeVector(
+      [...vtkCamera.getPosition()] as Point3,
+      [0, 0, 1]
+    );
+    const focalPoint = sanitizeVector(
+      [...vtkCamera.getFocalPoint()] as Point3,
+      [0, 0, 0]
+    );
+
+    // Always return a new instance for optimization
+    return {
+      viewUp,
+      viewPlaneNormal,
+      position,
+      focalPoint,
+      parallelProjection: vtkCamera.getParallelProjection(),
+      parallelScale: vtkCamera.getParallelScale(),
+      viewAngle: vtkCamera.getViewAngle(),
+      flipHorizontal: this.flipHorizontal,
+      flipVertical: this.flipVertical,
+    };
   }
 
   /**
@@ -1244,18 +1490,11 @@ class Viewport implements IViewport {
    * @returns The camera object.
    */
   public getCamera(): ICamera {
-    const vtkCamera = this.getVtkActiveCamera();
+    const camera = this.getCameraNoRotation();
 
     return {
-      viewUp: <Point3>vtkCamera.getViewUp(),
-      viewPlaneNormal: <Point3>vtkCamera.getViewPlaneNormal(),
-      position: <Point3>vtkCamera.getPosition(),
-      focalPoint: <Point3>vtkCamera.getFocalPoint(),
-      parallelProjection: vtkCamera.getParallelProjection(),
-      parallelScale: vtkCamera.getParallelScale(),
-      viewAngle: vtkCamera.getViewAngle(),
-      flipHorizontal: this.flipHorizontal,
-      flipVertical: this.flipVertical,
+      ...camera,
+      rotation: this.getRotation(),
     };
   }
 
@@ -1270,7 +1509,7 @@ class Viewport implements IViewport {
     storeAsInitialCamera = false
   ): void {
     const vtkCamera = this.getVtkActiveCamera();
-    const previousCamera = _cloneDeep(this.getCamera());
+    const previousCamera = this.getCamera();
     const updatedCamera = Object.assign({}, previousCamera, cameraInterface);
     const {
       viewUp,
@@ -1348,18 +1587,18 @@ class Viewport implements IViewport {
     const prevViewUp = previousCamera.viewUp;
 
     if ((prevFocalPoint && focalPoint) || (prevViewUp && viewUp)) {
-      const currentViewPlaneNormal = <Point3>vtkCamera.getViewPlaneNormal();
-      const currentViewUp = <Point3>vtkCamera.getViewUp();
+      const currentViewPlaneNormal = vtkCamera.getViewPlaneNormal() as Point3;
+      const currentViewUp = vtkCamera.getViewUp() as Point3;
 
       let cameraModifiedOutOfPlane = false;
       let viewUpHasChanged = false;
 
       if (focalPoint) {
-        const deltaCamera = <Point3>[
+        const deltaCamera = [
           focalPoint[0] - prevFocalPoint[0],
           focalPoint[1] - prevFocalPoint[1],
           focalPoint[2] - prevFocalPoint[2],
-        ];
+        ] as Point3;
 
         cameraModifiedOutOfPlane =
           Math.abs(vtkMath.dot(deltaCamera, currentViewPlaneNormal)) > 0;
@@ -1417,7 +1656,6 @@ class Viewport implements IViewport {
         element: this.element,
         viewportId: this.id,
         renderingEngineId: this.renderingEngineId,
-        rotation: this.getRotation(),
       };
 
       triggerEvent(this.element, Events.CAMERA_MODIFIED, eventDetail);
@@ -1453,9 +1691,10 @@ class Viewport implements IViewport {
         return;
       }
 
-      const mapper = actorEntry.actor.getMapper();
+      const mapper = actorEntry.actor.getMapper() as vtkMapper;
+
       let vtkPlanes = actorEntry?.clippingFilter
-        ? actorEntry.clippingFilter.getClippingPlanes()
+        ? actorEntry?.clippingFilter.getClippingPlanes()
         : mapper.getClippingPlanes();
 
       if (vtkPlanes.length === 0 && actorEntry?.clippingFilter) {
@@ -1485,7 +1724,7 @@ class Viewport implements IViewport {
   }
 
   public setOrientationOfClippingPlanes(
-    vtkPlanes: Array<vtkPlane>,
+    vtkPlanes: vtkPlane[],
     slabThickness: number,
     viewPlaneNormal: Point3,
     focalPoint: Point3
@@ -1494,15 +1733,15 @@ class Viewport implements IViewport {
       return;
     }
 
-    const scaledDistance = <Point3>[
+    const scaledDistance = [
       viewPlaneNormal[0],
       viewPlaneNormal[1],
       viewPlaneNormal[2],
-    ];
+    ] as Point3;
     vtkMath.multiplyScalar(scaledDistance, slabThickness);
 
     vtkPlanes[0].setNormal(viewPlaneNormal);
-    const newOrigin1 = <Point3>[0, 0, 0];
+    const newOrigin1 = [0, 0, 0] as Point3;
     vtkMath.subtract(focalPoint, scaledDistance, newOrigin1);
     vtkPlanes[0].setOrigin(newOrigin1);
 
@@ -1511,7 +1750,7 @@ class Viewport implements IViewport {
       -viewPlaneNormal[1],
       -viewPlaneNormal[2]
     );
-    const newOrigin2 = <Point3>[0, 0, 0];
+    const newOrigin2 = [0, 0, 0] as Point3;
     vtkMath.add(focalPoint, scaledDistance, newOrigin2);
     vtkPlanes[1].setOrigin(newOrigin2);
   }
@@ -1530,9 +1769,9 @@ class Viewport implements IViewport {
       throw new Error('Invalid actor entry: Actor is undefined');
     }
 
-    const mapper = actorEntry.actor.getMapper();
+    const mapper = actorEntry.actor.getMapper() as vtkMapper;
     let vtkPlanes = actorEntry?.clippingFilter
-      ? actorEntry.clippingFilter.getClippingPlanes()
+      ? actorEntry?.clippingFilter.getClippingPlanes()
       : mapper.getClippingPlanes();
 
     if (vtkPlanes.length === 0 && actorEntry?.clippingFilter) {
@@ -1600,30 +1839,80 @@ class Viewport implements IViewport {
    * in a given viewport.
    * See getViewPresentation for HOW a view is displayed.
    *
+   *
    * @param viewRefSpecifier - choose an alternate view to be specified, typically
    *      a different slice index in the same set of images.
    */
   public getViewReference(
-    viewRefSpecifier: ViewReferenceSpecifier = {}
+    viewRefSpecifier?: ViewReferenceSpecifier
   ): ViewReference {
     const {
       focalPoint: cameraFocalPoint,
       viewPlaneNormal,
       viewUp,
     } = this.getCamera();
+    const FrameOfReferenceUID = this.getFrameOfReferenceUID();
     const target: ViewReference = {
-      FrameOfReferenceUID: this.getFrameOfReferenceUID(),
+      FrameOfReferenceUID,
       cameraFocalPoint,
       viewPlaneNormal,
       viewUp,
-      sliceIndex: viewRefSpecifier.sliceIndex ?? this.getSliceIndex(),
+      sliceIndex: viewRefSpecifier?.sliceIndex ?? this.getSliceIndex(),
+      /** The referenced plane is the canonical specifier for whether
+       * this view reference is visible or not.
+       */
+      planeRestriction: {
+        FrameOfReferenceUID,
+        point: viewRefSpecifier?.points?.[0] || cameraFocalPoint,
+        inPlaneVector1: viewUp,
+        inPlaneVector2: <Point3>(
+          vec3.cross(vec3.create(), viewUp, viewPlaneNormal)
+        ),
+      },
     };
+    if (viewRefSpecifier?.points) {
+      updatePlaneRestriction(viewRefSpecifier.points, target.planeRestriction);
+    }
     return target;
+  }
+
+  public isPlaneViewable(
+    planeRestriction: PlaneRestriction,
+    options?: ReferenceCompatibleOptions
+  ): boolean {
+    if (
+      planeRestriction.FrameOfReferenceUID !== this.getFrameOfReferenceUID()
+    ) {
+      return false;
+    }
+    const { focalPoint, viewPlaneNormal } = this.getCamera();
+    const { point, inPlaneVector1, inPlaneVector2 } = planeRestriction;
+    if (options?.withOrientation) {
+      // Don't need to check the normal or the navigation if asking as a volume
+      // since those can both be updated
+      return true;
+    }
+    if (
+      inPlaneVector1 &&
+      !isEqual(0, vec3.dot(viewPlaneNormal, inPlaneVector1))
+    ) {
+      return false;
+    }
+    if (
+      inPlaneVector2 &&
+      !isEqual(0, vec3.dot(viewPlaneNormal, inPlaneVector2))
+    ) {
+      return false;
+    }
+    if (options?.withNavigation) {
+      return true;
+    }
+    const pointVector = vec3.sub(vec3.create(), point, focalPoint);
+    return isEqual(0, vec3.dot(pointVector, viewPlaneNormal));
   }
 
   /**
    * Find out if this viewport does or could show this view reference.
-   *
    * @param options - allows specifying whether the view COULD display this with
    *                  some modification - either navigation or displaying as volume.
    * @returns true if the viewport could show this view reference
@@ -1632,6 +1921,9 @@ class Viewport implements IViewport {
     viewRef: ViewReference,
     options?: ReferenceCompatibleOptions
   ): boolean {
+    if (viewRef.planeRestriction) {
+      return this.isPlaneViewable(viewRef.planeRestriction, options);
+    }
     if (
       viewRef.FrameOfReferenceUID &&
       viewRef.FrameOfReferenceUID !== this.getFrameOfReferenceUID()
@@ -1650,7 +1942,7 @@ class Viewport implements IViewport {
       )
     ) {
       // Could navigate as a volume to the reference with an orientation change
-      return options?.withOrientation === true;
+      return options?.withOrientation;
     }
     return true;
   }
@@ -1664,7 +1956,7 @@ class Viewport implements IViewport {
    * specifying what image s displayed.  All of this information is available
    * externally, but this method combines the parts of this that are appropriate
    * for remember or applying to other views, without necessarily needing to know
-   * what all the atributes are.  That differs from methods like getCamera which
+   * what all the attributes are.  That differs from methods like getCamera which
    * fetch exact view details that are not likely to be identical between viewports
    * as they change sizes or apply to different images.
    *
@@ -1684,11 +1976,14 @@ class Viewport implements IViewport {
       displayArea: true,
       zoom: true,
       pan: true,
+      flipHorizontal: true,
+      flipVertical: true,
     }
   ): ViewPresentation {
     const target: ViewPresentation = {};
 
-    const { rotation, displayArea, zoom, pan } = viewPresSel;
+    const { rotation, displayArea, zoom, pan, flipHorizontal, flipVertical } =
+      viewPresSel;
     if (rotation) {
       target.rotation = this.getRotation();
     }
@@ -1703,6 +1998,14 @@ class Viewport implements IViewport {
     if (pan) {
       target.pan = this.getPan();
       vec2.scale(target.pan, target.pan, 1 / initZoom);
+    }
+
+    if (flipHorizontal) {
+      target.flipHorizontal = this.flipHorizontal;
+    }
+
+    if (flipVertical) {
+      target.flipVertical = this.flipVertical;
     }
     return target;
   }
@@ -1722,7 +2025,14 @@ class Viewport implements IViewport {
     if (!viewPres) {
       return;
     }
-    const { displayArea, zoom = this.getZoom(), pan, rotation } = viewPres;
+    const {
+      displayArea,
+      zoom = this.getZoom(),
+      pan,
+      rotation,
+      flipHorizontal = this.flipHorizontal,
+      flipVertical = this.flipVertical,
+    } = viewPres;
     if (displayArea !== this.getDisplayArea()) {
       this.setDisplayArea(displayArea);
     }
@@ -1730,18 +2040,26 @@ class Viewport implements IViewport {
     if (pan) {
       this.setPan(vec2.scale([0, 0], pan, zoom) as Point2);
     }
+
+    // flip operation requires another re-render to take effect, so unfortunately
+    // right now if the view presentation requires a flip, it will flicker. The
+    // correct way to handle this is to wait for camera and flip together and then
+    // do one render
+    if (
+      flipHorizontal !== undefined &&
+      flipHorizontal !== this.flipHorizontal
+    ) {
+      this.flip({ flipHorizontal });
+    }
+    if (flipVertical !== undefined && flipVertical !== this.flipVertical) {
+      this.flip({ flipVertical });
+    }
     if (rotation >= 0) {
       this.setRotation(rotation);
     }
   }
 
-  protected _shouldUseNativeDataType() {
-    const { useNorm16Texture, preferSizeOverAccuracy } =
-      getConfiguration().rendering;
-    return useNorm16Texture || preferSizeOverAccuracy;
-  }
-
-  _getCorners(bounds: Array<number>): Array<number>[] {
+  _getCorners(bounds: number[]): number[][] {
     return [
       [bounds[0], bounds[2], bounds[4]],
       [bounds[0], bounds[2], bounds[5]],
@@ -1837,7 +2155,7 @@ class Viewport implements IViewport {
    * @param bounds - Bounds of the renderer
    * @returns Edges of the containing bounds
    */
-  _getEdges(bounds: Array<number>): Array<[number[], number[]]> {
+  _getEdges(bounds: number[]): [number[], number[]][] {
     const [p1, p2, p3, p4, p5, p6, p7, p8] = this._getCorners(bounds);
     return [
       [p1, p2],

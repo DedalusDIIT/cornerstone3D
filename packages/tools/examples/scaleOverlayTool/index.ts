@@ -1,4 +1,5 @@
-import { Types, Enums, RenderingEngine } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { Enums, RenderingEngine } from '@cornerstonejs/core';
 import {
   initDemo,
   createImageIdsAndCacheMetaData,
@@ -18,7 +19,7 @@ const {
   ToolGroupManager,
   ScaleOverlayTool,
   LengthTool,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   Enums: csToolsEnums,
 } = cornerstoneTools;
 
@@ -55,7 +56,9 @@ element2.style.height = '500px';
 viewportGrid.appendChild(element);
 viewportGrid.appendChild(element2);
 content.appendChild(viewportGrid);
-
+const wadoRsRoot = 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb';
+const StudyInstanceUID =
+  '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463';
 const instructions = document.createElement('p');
 instructions.innerText =
   'Left Click: Length Tool\nRight Click: Zoom\n Mouse Wheel: Stack Scroll';
@@ -99,7 +102,7 @@ async function run() {
   cornerstoneTools.addTool(ZoomTool);
   cornerstoneTools.addTool(ScaleOverlayTool);
   cornerstoneTools.addTool(LengthTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
+  cornerstoneTools.addTool(StackScrollTool);
 
   // Create a stack viewport
   // Define a tool group, which defines how mouse events map to tool commands for
@@ -110,7 +113,7 @@ async function run() {
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
   toolGroup.addTool(LengthTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
+  toolGroup.addTool(StackScrollTool.toolName);
   toolGroup.addTool(ScaleOverlayTool.toolName);
 
   // Set the initial state of the tools, here we set one tool active on left click.
@@ -132,25 +135,24 @@ async function run() {
     ],
   });
 
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [{ mouseButton: MouseBindings.Wheel }],
+  });
 
   toolGroup.setToolEnabled(ScaleOverlayTool.toolName);
 
   // Get Cornerstone imageIds and fetch metadata into RAM
   const imageIds = await createImageIdsAndCacheMetaData({
-    StudyInstanceUID:
-      '1.3.6.1.4.1.14519.5.2.1.7311.5101.158323547117540061132729905711',
+    StudyInstanceUID,
     SeriesInstanceUID:
-      '1.3.6.1.4.1.14519.5.2.1.7311.5101.250911858840767891342974687368',
-    wadoRsRoot: 'https://domvja9iplmyu.cloudfront.net/dicomweb',
+      '1.3.6.1.4.1.14519.5.2.1.7009.2403.879445243400782656317561081015',
+    wadoRsRoot,
   });
-
   const imageIds2 = await createImageIdsAndCacheMetaData({
-    StudyInstanceUID:
-      '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
+    StudyInstanceUID,
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot,
   });
   // Instantiate a rendering engine
   const renderingEngineId = 'myRenderingEngine';

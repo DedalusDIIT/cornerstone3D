@@ -1,19 +1,23 @@
+import { vec3 } from 'gl-matrix';
+
 import getOrCreateCanvas, {
   EPSILON,
 } from '../RenderingEngine/helpers/getOrCreateCanvas';
 import { ViewportType, Events } from '../enums';
-import {
+import type {
   IImage,
   IStackViewport,
   IVolume,
   ViewportInputOptions,
   IVolumeViewport,
   ViewReference,
+  Point3,
 } from '../types';
 import { getRenderingEngine } from '../RenderingEngine/getRenderingEngine';
-import RenderingEngine from '../RenderingEngine';
+import type RenderingEngine from '../RenderingEngine';
+import TiledRenderingEngine from '../RenderingEngine/TiledRenderingEngine';
 import isPTPrescaledWithSUV from './isPTPrescaledWithSUV';
-import { CanvasLoadPosition } from './loadImageToCanvas';
+import type { CanvasLoadPosition } from './loadImageToCanvas';
 
 /**
  * Renders an cornerstone image to a Canvas. This method will handle creation
@@ -32,7 +36,12 @@ import { CanvasLoadPosition } from './loadImageToCanvas';
  * @param canvas - Canvas element to render to
  * @param imageOrVolume - The image to render
  * @param modality - [Default = undefined] The modality of the image
- * @returns - A promise that resolves when the image has been rendered with the imageId
+ * @returns - A promise that resolves when the image has been rendered with the imageId containing
+ *     origin for the bottom/left hand corner in world coordinates of the 0,0 canvas position
+ *     rightVector for a position difference of [1,0] of canvas indices as world coordinates
+ *     downVector for a position difference of [0,1] of canvas indices as world coordinates
+ *
+ * That is, for canvas indices `[x,y]` the coordinates in world space is `origin + x*rightVector + y*downVector`
  */
 export default function renderToCanvasGPU(
   canvas: HTMLCanvasElement,
@@ -50,7 +59,7 @@ export default function renderToCanvasGPU(
   const isVolume = !(imageOrVolume as IImage).imageId;
   const image = !isVolume && (imageOrVolume as IImage);
   const volume = isVolume && (imageOrVolume as IVolume);
-  const imageIdToPrint = image?.imageId || volume?.volumeId;
+  const imageIdToPrint = image.imageId || volume.volumeId;
   const viewportId = `renderGPUViewport-${imageIdToPrint}`;
   const element = document.createElement('div');
   const devicePixelRatio = window.devicePixelRatio || 1;
@@ -80,7 +89,7 @@ export default function renderToCanvasGPU(
   const temporaryCanvas = getOrCreateCanvas(element);
   const renderingEngine =
     (getRenderingEngine(renderingEngineId) as RenderingEngine) ||
-    new RenderingEngine(renderingEngineId);
+    new TiledRenderingEngine(renderingEngineId);
 
   let viewport = renderingEngine.getViewport(viewportId);
 
@@ -141,6 +150,16 @@ export default function renderToCanvasGPU(
         0,
         temporaryCanvas.height / devicePixelRatio,
       ]);
+      const rightVector = vec3.sub(
+        [0, 0, 0],
+        viewport.canvasToWorld([1 / devicePixelRatio, 0]),
+        origin
+      ) as Point3;
+      const downVector = vec3.sub(
+        [0, 0, 0],
+        viewport.canvasToWorld([0, 1 / devicePixelRatio]),
+        origin
+      ) as Point3;
       const thicknessMm = 1;
       elementRendered = true;
 
@@ -168,11 +187,14 @@ export default function renderToCanvasGPU(
         bottomLeft,
         topRight,
         thicknessMm,
+        rightVector,
+        downVector,
       });
     };
 
     element.addEventListener(Events.IMAGE_RENDERED, onImageRendered);
     if (isVolume) {
+      // @ts-expect-error
       (viewport as IVolumeViewport).setVolumes([volume], false, true);
     } else {
       (viewport as IStackViewport).renderImageObject(imageOrVolume);

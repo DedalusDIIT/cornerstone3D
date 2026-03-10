@@ -1,7 +1,7 @@
-import { state } from '../../store';
+import { state } from '../../store/state';
 import { ToolModes } from '../../enums';
-import { EventTypes } from '../../types';
-import {
+import type { EventTypes } from '../../types';
+import type {
   ToolAnnotationPair,
   ToolsWithMoveableHandles,
 } from '../../types/InternalToolTypes';
@@ -43,19 +43,16 @@ export default function touchStart(evt: EventTypes.TouchStartEventType) {
     }
   }
 
-  const isPrimaryClick = Object.keys(evt.detail.event.touches).length === 1;
-  const activeToolsWithEventBinding = getToolsWithModesForTouchEvent(
-    evt,
-    [Active],
-    Object.keys(evt.detail.event.touches).length
-  );
-  const passiveToolsIfEventWasPrimaryTouchButton = isPrimaryClick
-    ? getToolsWithModesForTouchEvent(evt, [Passive])
-    : undefined;
+  // Find all tools that might respond to this touch start for annotation interaction.
+  // For checking existing annotation interactions (handles, moveable annotations),
+  // we need ALL Active and Passive tools regardless of touch binding.
+  // This allows editing annotations created by tools bound to different touch gestures.
+  // The touch binding only determines which tool creates NEW annotations.
+  const allActiveTools = getToolsWithModesForTouchEvent(evt, [Active]);
+  const allPassiveTools = getToolsWithModesForTouchEvent(evt, [Passive]);
   const applicableTools = [
-    ...(activeToolsWithEventBinding || []),
-    ...(passiveToolsIfEventWasPrimaryTouchButton || []),
-    activeTool,
+    ...(allActiveTools || []),
+    ...(allPassiveTools || []),
   ];
 
   const eventDetail = evt.detail;
@@ -111,7 +108,7 @@ export default function touchStart(evt: EventTypes.TouchStartEventType) {
     );
 
     toggleAnnotationSelection(annotation.annotationUID, isMultiSelect);
-    tool.toolSelectedCallback(evt, annotation, 'Touch');
+    tool.toolSelectedCallback(evt, annotation, 'Touch', canvasCoords);
 
     return;
   }
@@ -142,7 +139,7 @@ function getAnnotationForSelection(
     (toolsWithMovableHandles.length > 1 &&
       toolsWithMovableHandles.find(
         (item) =>
-          !isAnnotationLocked(item.annotation) &&
+          !isAnnotationLocked(item.annotation.annotationUID) &&
           isAnnotationVisible(item.annotation.annotationUID)
       )) ||
     toolsWithMovableHandles[0]

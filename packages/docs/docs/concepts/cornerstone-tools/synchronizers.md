@@ -1,13 +1,14 @@
 ---
 id: synchronizers
 title: Synchronizers
+summary: Mechanism for coordinating actions across multiple viewports, enabling synchronization of camera position, windowing levels, and other visualization parameters
 ---
 
 # Synchronizers
 
 Synchronizers can be used to link particular actions across viewports (e.g. sync pan/zoom interaction), but they can also be used to tie any callback to a particular event. Synchronizers require:
 
-- An [`Event`](/api/core/namespace/Enums#Events) to listen for
+- An [`Event`](/docs/api/core/namespaces/enums/enumerations/events) to listen for
 - A function to call when that event is raised on a source viewport
 - An array of `source` viewports
 - An array of `target` viewports

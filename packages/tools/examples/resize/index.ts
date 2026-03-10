@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   setVolumesForViewports,
   volumeLoader,
@@ -49,6 +49,7 @@ const viewportIds = [
   viewportId4,
   viewportId5,
 ];
+
 let viewport;
 const viewports = [];
 const renderingEngineId = 'myRenderingEngine';
@@ -278,7 +279,7 @@ addDropdownToToolbar({
     defaultValue: rotations[0],
   },
   onSelectedValueChange: (value) => {
-    viewport.setProperties({ rotation: value });
+    viewport.setViewPresentation({ rotation: value });
     viewport.render();
   },
 });
@@ -411,18 +412,16 @@ async function run() {
 
   // Get Cornerstone imageIds for the source data and fetch metadata into RAM
   const imageIds = await createImageIdsAndCacheMetaData({
-    StudyInstanceUID:
-      '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
-    SeriesInstanceUID:
-      '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    StudyInstanceUID: '1.3.6.1.4.1.25403.345050719074.3824.20170125095438.5',
+    SeriesInstanceUID: '1.3.6.1.4.1.25403.345050719074.3824.20170125095501.12',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   const stackImageIds = await createImageIdsAndCacheMetaData({
     StudyInstanceUID: '2.16.124.113543.6004.101.103.20021117.190619.1',
     SeriesInstanceUID: '2.16.124.113543.6004.101.103.20021117.190619.1.001',
     wadoRsRoot:
-      getLocalUrl() || 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+      getLocalUrl() || 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Define a volume in memory

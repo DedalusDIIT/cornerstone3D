@@ -1,6 +1,7 @@
 ---
 id: visibility
 title: Visibility
+summary: API for controlling the visibility of annotations with methods to show/hide individual annotations or show all hidden annotations
 ---
 
 # Visibility
@@ -32,5 +33,5 @@ annotation.visibility.isAnnotationVisible(annotationUID);
 ## Read more
 
 :::note TIP
-Read more about the visibility API [here](/api/tools/namespace/annotation#visibility)
+Read more about the visibility API [here](/docs/api/tools/namespaces/annotation/namespaces/visibility)
 :::

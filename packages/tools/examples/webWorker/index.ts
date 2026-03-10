@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   getWebWorkerManager,
 } from '@cornerstonejs/core';
@@ -20,7 +20,7 @@ console.warn(
 const {
   PanTool,
   WindowLevelTool,
-  StackScrollMouseWheelTool,
+  StackScrollTool,
   ZoomTool,
   utilities,
   ToolGroupManager,
@@ -63,6 +63,7 @@ content.appendChild(sleepResult);
 const workerFn = () => {
   return new Worker(new URL('./heavyTask.js', import.meta.url), {
     name: 'test-worker', // name used by the browser to name the worker
+    type: 'module',
   });
 };
 
@@ -78,16 +79,14 @@ workerManager.registerWorker('test-worker', workerFn, options);
 addButtonToToolbar({
   title: 'Run a heavy task off the main thread',
   onClick: () => {
-    document.getElementById(
-      'sleep-result'
-    ).innerText = `Running a heavy task off the main thread for 5 seconds...`;
+    document.getElementById('sleep-result').innerText =
+      `Running a heavy task off the main thread for 5 seconds...`;
 
     workerManager
       .executeTask('test-worker', 'sleep', { time: 5000 })
       .then((result) => {
-        document.getElementById(
-          'sleep-result'
-        ).innerText = `Heavy task completed!`;
+        document.getElementById('sleep-result').innerText =
+          `Heavy task completed!`;
       })
       .catch((error) => {
         console.error('error', error);
@@ -98,16 +97,14 @@ addButtonToToolbar({
 addButtonToToolbar({
   title: 'Calculate Fibonacci number 43',
   onClick: () => {
-    document.getElementById(
-      'fib-result'
-    ).innerText = `Calculating Fibonacci number 43...`;
+    document.getElementById('fib-result').innerText =
+      `Calculating Fibonacci number 43...`;
 
     workerManager
       .executeTask('test-worker', 'fib', { value: 43 })
       .then((result) => {
-        document.getElementById(
-          'fib-result'
-        ).innerText = `Fibonacci number 43 is ${result}`;
+        document.getElementById('fib-result').innerText =
+          `Fibonacci number 43 is ${result}`;
       })
       .catch((error) => {
         console.error('error', error);
@@ -124,7 +121,7 @@ async function run() {
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(WindowLevelTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
+  cornerstoneTools.addTool(StackScrollTool);
   cornerstoneTools.addTool(ZoomTool);
 
   const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
@@ -133,7 +130,7 @@ async function run() {
   toolGroup.addTool(WindowLevelTool.toolName);
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName, { loop: false });
+  toolGroup.addTool(StackScrollTool.toolName, { loop: false });
 
   // Get Cornerstone imageIds and fetch metadata into RAM
   const imageIds = await createImageIdsAndCacheMetaData({
@@ -141,7 +138,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   toolGroup.setToolActive(WindowLevelTool.toolName, {
@@ -165,7 +162,13 @@ async function run() {
       },
     ],
   });
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName, {});
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Wheel,
+      },
+    ],
+  });
 
   // Instantiate a rendering engine
   const renderingEngine = new RenderingEngine(renderingEngineId);

@@ -1,10 +1,10 @@
 import type { Types } from '@cornerstonejs/core';
-import { Annotation } from './AnnotationTypes';
-import { ISpline } from './';
-import { ContourSegmentationAnnotationData } from './ContourSegmentationAnnotation';
-import { ContourAnnotation } from './ContourAnnotation';
+import type { Annotation, AnnotationData } from './AnnotationTypes';
+import type { ISpline } from './';
+import type { ContourSegmentationAnnotationData } from './ContourSegmentationAnnotation';
+import type { ContourAnnotation } from './ContourAnnotation';
 
-interface ROICachedStats {
+export interface ROICachedStats {
   [targetId: string]: {
     Modality: string;
     area: number;
@@ -12,6 +12,7 @@ interface ROICachedStats {
     max: number;
     mean: number;
     stdDev: number;
+    unit?: number;
   };
 }
 
@@ -56,6 +57,15 @@ export interface ProbeAnnotation extends Annotation {
   };
 }
 
+export type KeyImageAnnotation = ProbeAnnotation & {
+  data: {
+    /** Indicates that the point selected is relevant rather than just the image */
+    isPoint: boolean;
+    /** Indicates that this key image selects the entire stack/volume (series) */
+    seriesLevel: boolean;
+  };
+};
+
 export interface LengthAnnotation extends Annotation {
   data: {
     handles: {
@@ -82,6 +92,17 @@ export interface LengthAnnotation extends Annotation {
   };
 }
 
+export interface UltrasoundPleuraBLineAnnotation extends Annotation {
+  data: {
+    handles: {
+      points: [Types.Point3, Types.Point3];
+      activeHandleIndex: number | null;
+    };
+    annotationType: 'pleura' | 'bLine'; // Allowed values
+    label: string;
+  };
+}
+
 export interface AdvancedMagnifyAnnotation extends Annotation {
   data: {
     zoomFactor: number;
@@ -98,7 +119,13 @@ export interface AdvancedMagnifyAnnotation extends Annotation {
 export interface CircleROIAnnotation extends Annotation {
   data: {
     handles: {
-      points: [Types.Point3, Types.Point3]; // [center, end]
+      points: [
+        Types.Point3,
+        Types.Point3,
+        Types.Point3,
+        Types.Point3,
+        Types.Point3,
+      ]; // [center, top, bottom, left, right]
       activeHandleIndex: number | null;
       textBox?: {
         hasMoved: boolean;
@@ -191,7 +218,7 @@ export interface BidirectionalAnnotation extends Annotation {
         };
       };
     };
-    label: string;
+    label?: string;
     cachedStats: {
       [targetId: string]: {
         length: number;
@@ -234,7 +261,7 @@ export interface RectangleROIStartEndThresholdAnnotation extends Annotation {
     FrameOfReferenceUID: string;
     referencedImageId?: string;
     toolName: string;
-    enabledElement: any; // Todo: how to remove this from the annotation??
+    enabledElement: Types.IEnabledElement; // Todo: how to remove this from the annotation??
     volumeId: string;
     spacingInNormal: number;
   };
@@ -246,7 +273,7 @@ export interface RectangleROIStartEndThresholdAnnotation extends Annotation {
       pointsInVolume: Types.Point3[];
       projectionPoints: Types.Point3[][]; // first slice p1, p2, p3, p4; second slice p1, p2, p3, p4 ...
       projectionPointsImageIds: string[];
-      statistics?: ROICachedStats | any[];
+      statistics?: ROICachedStats;
     };
     handles: {
       points: Types.Point3[];
@@ -275,7 +302,7 @@ export interface CircleROIStartEndThresholdAnnotation extends Annotation {
     FrameOfReferenceUID: string;
     referencedImageId?: string;
     toolName: string;
-    enabledElement: any; // Todo: how to remove this from the annotation??
+    enabledElement: Types.IEnabledElement; // Todo: how to remove this from the annotation??
     volumeId: string;
     spacingInNormal: number;
   };
@@ -286,10 +313,10 @@ export interface CircleROIStartEndThresholdAnnotation extends Annotation {
     cachedStats?: {
       pointsInVolume: Types.Point3[];
       projectionPoints: Types.Point3[][];
-      statistics?: ROICachedStats | any[];
+      statistics?: ROICachedStats;
     };
     handles: {
-      points: [Types.Point3, Types.Point3]; // [center, end]
+      points: Types.Point3[]; // [center, top, bottom, left, right]
       activeHandleIndex: number | null;
       textBox?: {
         hasMoved: boolean;
@@ -308,8 +335,8 @@ export interface CircleROIStartEndThresholdAnnotation extends Annotation {
 export type PlanarFreehandROIAnnotation = ContourAnnotation & {
   data: {
     label?: string;
-    isOpenUShapeContour?: boolean;
-    // Present if isOpenUShapeContour is true:
+    isOpenUShapeContour?: boolean | 'lineSegment' | 'orthogonalT';
+    // Present if isOpenUShapeContour is truthy:
     openUShapeContourVectorToPeak?: Types.Point3[];
     cachedStats?: ROICachedStats;
   };
@@ -338,8 +365,8 @@ export type InterpolationROIAnnotation = ContourAnnotation &
   };
 
 export interface ArrowAnnotation extends Annotation {
-  data: {
-    text: string;
+  data: AnnotationData & {
+    label: string;
     handles: {
       points: Types.Point3[];
       arrowFirst: boolean;
@@ -354,6 +381,15 @@ export interface ArrowAnnotation extends Annotation {
           bottomRight: Types.Point3;
         };
       };
+    };
+  };
+}
+
+export interface LabelAnnotation extends Annotation {
+  data: AnnotationData & {
+    label: string;
+    handles: {
+      points: Types.Point3[];
     };
   };
 }
@@ -482,6 +518,41 @@ export interface ScaleOverlayAnnotation extends Annotation {
   };
 }
 
+export interface SegmentBidirectionalAnnotation extends Annotation {
+  data: {
+    cachedStats: {
+      [targetId: string]: {
+        length: number;
+        width: number;
+        unit: string;
+      };
+    };
+    handles: {
+      points: Types.Point3[];
+      activeHandleIndex: number | null;
+      textBox: {
+        hasMoved: boolean;
+        worldPosition: Types.Point3;
+        worldBoundingBox: {
+          topLeft: Types.Point3;
+          topRight: Types.Point3;
+          bottomLeft: Types.Point3;
+          bottomRight: Types.Point3;
+        };
+      };
+    };
+  };
+  metadata: {
+    toolName: string;
+    viewPlaneNormal?: Types.Point3;
+    viewUp?: Types.Point3;
+    FrameOfReferenceUID: string;
+    referencedImageId?: string;
+    segmentIndex: number;
+    segmentationId: string;
+  };
+}
+
 export interface VideoRedactionAnnotation extends Annotation {
   metadata: {
     viewPlaneNormal: Types.Point3;
@@ -497,7 +568,7 @@ export interface VideoRedactionAnnotation extends Annotation {
       activeHandleIndex: number | null;
     };
     cachedStats: {
-      [key: string]: any; // Can be more specific if the structure is known
+      [key: string]: unknown; // Can be more specific if the structure is known
     };
     active: boolean;
   };

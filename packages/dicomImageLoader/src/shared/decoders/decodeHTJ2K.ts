@@ -1,12 +1,20 @@
-import { ByteArray } from 'dicom-parser';
-import openJphFactory from '@cornerstonejs/codec-openjph/wasmjs';
-import openjphWasm from '@cornerstonejs/codec-openjph/wasm';
+import type { ByteArray } from 'dicom-parser';
+import openJphFactory, {
+  type HTJ2KDecoder,
+  type HTJ2KModule,
+} from '@cornerstonejs/codec-openjph/wasmjs';
+// @ts-ignore
+// import openjphWasm from '@cornerstonejs/codec-openjph/wasm';
+const openjphWasm = new URL(
+  '@cornerstonejs/codec-openjph/wasm',
+  import.meta.url
+);
 
-import { LoaderDecodeOptions } from '../../types';
+import type { LoaderDecodeOptions } from '../../types';
 
 const local: {
-  codec: any;
-  decoder: any;
+  codec: HTJ2KModule | undefined;
+  decoder: HTJ2KDecoder | undefined;
   decodeConfig: LoaderDecodeOptions;
 } = {
   codec: undefined,
@@ -38,7 +46,7 @@ export function initialize(decodeConfig?: LoaderDecodeOptions): Promise<void> {
   const openJphModule = openJphFactory({
     locateFile: (f) => {
       if (f.endsWith('.wasm')) {
-        return openjphWasm;
+        return openjphWasm.toString();
       }
 
       return f;

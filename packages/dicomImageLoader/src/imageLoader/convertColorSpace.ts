@@ -4,7 +4,7 @@ import {
   convertYBRFullByPixel,
   convertYBRFull422ByPixel,
   convertYBRFullByPlane,
-  convertPALETTECOLOR,
+  convertPaletteColor,
 } from './colorSpaceConverters/index';
 
 async function convertRGB(imageFrame, colorBuffer, useRGBA) {
@@ -23,20 +23,23 @@ async function convertYBRFull(imageFrame, colorBuffer, useRGBA) {
   }
 }
 
-export default async function convertColorSpace(
-  imageFrame,
-  colorBuffer,
-  useRGBA
-) {
+export default async function convertColorSpace(imageFrame, colorBuffer, useRGBA) {
+  const { photometricInterpretation: pmi } = imageFrame;
   // convert based on the photometric interpretation
   if (imageFrame.photometricInterpretation === 'RGB') {
-    await convertRGB(imageFrame, colorBuffer, useRGBA);
-  } else if (imageFrame.photometricInterpretation === 'YBR_RCT') {
-    await convertRGB(imageFrame, colorBuffer, useRGBA);
-  } else if (imageFrame.photometricInterpretation === 'YBR_ICT') {
-    await convertRGB(imageFrame, colorBuffer, useRGBA);
+    convertRGB(imageFrame, colorBuffer, useRGBA);
+  } else if (
+    pmi === 'YBR_RCT' ||
+    pmi === 'YBR_ICT' ||
+    pmi === 'YBR_PARTIAL_420'
+  ) {
+    // According to: https://dicom.nema.org/medical/dicom/current/output/html/part05.html#sect_8.2
+    // color by plane is not permitted for these PMI values, AND the
+    // uncompressed version isn't allowed, so fall back to RGB by pixel
+    // for those cases.
+    convertRGBColorByPixel(imageFrame.pixelData, colorBuffer, useRGBA);
   } else if (imageFrame.photometricInterpretation === 'PALETTE COLOR') {
-    await convertPALETTECOLOR(imageFrame, colorBuffer, useRGBA);
+    convertPaletteColor(imageFrame, colorBuffer, useRGBA);
   } else if (imageFrame.photometricInterpretation === 'YBR_FULL_422') {
     await convertYBRFull422ByPixel(imageFrame.pixelData, colorBuffer, useRGBA);
   } else if (imageFrame.photometricInterpretation === 'YBR_FULL') {

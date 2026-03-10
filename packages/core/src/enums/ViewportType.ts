@@ -20,7 +20,11 @@ enum ViewportType {
   /**
    * Whole slide imaging viewport
    */
-  WholeSlide = 'wholeSlide',
+  WHOLE_SLIDE = 'wholeSlide',
+  /**
+   * ECG waveform viewport for displaying DICOM ECG traces
+   */
+  ECG = 'ecg',
 }
 
 export default ViewportType;

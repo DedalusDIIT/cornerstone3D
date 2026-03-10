@@ -1,17 +1,20 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
   Enums,
   imageLoader,
   metaData,
   getRenderingEngine,
-  Types,
   setVolumesForViewports,
   volumeLoader,
 } from '@cornerstonejs/core';
+import { LengthTool, ToolGroupManager } from '@cornerstonejs/tools';
 import {
   initDemo,
   setTitleAndDescription,
   addSliderToToolbar,
+  addManipulationBindings,
+  addButtonToToolbar,
 } from '../../../../utils/demo/helpers';
 import hardcodedMetaDataProvider from './hardcodedMetaDataProvider';
 import registerWebImageLoader from './registerWebImageLoader';
@@ -22,6 +25,8 @@ console.warn(
 );
 
 const { ViewportType } = Enums;
+
+const toolGroupId = 'toolGroup';
 
 // ======== Set up page ======== //
 setTitleAndDescription(
@@ -67,6 +72,11 @@ content.appendChild(element1);
 content.appendChild(paraElement);
 content.appendChild(rowElement);
 
+element1.oncontextmenu = (e) => e.preventDefault();
+element2.oncontextmenu = (e) => e.preventDefault();
+element3.oncontextmenu = (e) => e.preventDefault();
+element4.oncontextmenu = (e) => e.preventDefault();
+
 const renderingEngineId = 'myRenderingEngine';
 const viewportId = 'COLOR_STACK';
 
@@ -103,20 +113,43 @@ addSliderToToolbar({
     const renderingEngine = getRenderingEngine(renderingEngineId);
 
     // Get the volume viewport
-    const viewport = <Types.IStackViewport>(
-      renderingEngine.getViewport(viewportId)
-    );
+    const viewport = renderingEngine.getViewport(
+      viewportId
+    ) as Types.IStackViewport;
 
     viewport.setImageIdIndex(valueAsNumber);
     viewport.render();
   },
 });
+
+addButtonToToolbar({
+  title: 'Invert',
+  onClick: () => {
+    // Get the rendering engine
+    const renderingEngine = getRenderingEngine(renderingEngineId);
+
+    // Get the volume viewport
+    const viewport = renderingEngine.getViewport(
+      viewportId
+    ) as Types.IVolumeViewport;
+
+    const { invert } = viewport.getProperties();
+
+    viewport.setProperties({ invert: !invert });
+
+    viewport.render();
+  },
+});
+
 /**
  * Runs the demo
  */
 async function run() {
   // Init Cornerstone and related libraries
   await initDemo();
+  // Define tool groups to add the segmentation display tool to
+  const toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+  addManipulationBindings(toolGroup);
 
   metaData.addProvider(
     // @ts-ignore
@@ -156,7 +189,12 @@ async function run() {
     },
   ];
 
-  const volumeId = 'COLOR_VOLUME';
+  toolGroup.addViewport('COLOR_STACK', renderingEngineId);
+  toolGroup.addViewport('COLOR_VOLUME_1', renderingEngineId);
+  toolGroup.addViewport('COLOR_VOLUME_2', renderingEngineId);
+  toolGroup.addViewport('COLOR_VOLUME_3', renderingEngineId);
+
+  const volumeId = 'cornerstoneStreamingImageVolume:COLOR_VOLUME';
 
   const volume = await volumeLoader.createAndCacheVolume(volumeId, {
     imageIds,
@@ -167,13 +205,13 @@ async function run() {
   // render stack viewport
   renderingEngine.getStackViewports()[0].setStack(imageIds);
 
-  setVolumesForViewports(
+  await setVolumesForViewports(
     renderingEngine,
     [{ volumeId }],
     ['COLOR_VOLUME_1', 'COLOR_VOLUME_2', 'COLOR_VOLUME_3']
   );
 
-  volume.load();
+  await volume.load();
 
   // render volume viewports
   renderingEngine.render();

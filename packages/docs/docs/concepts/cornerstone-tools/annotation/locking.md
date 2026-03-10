@@ -1,6 +1,7 @@
 ---
 id: locking
 title: Locking
+summary: API for preventing accidental changes to annotations by locking them, with methods to lock/unlock individual or all annotations
 ---
 
 # Locking
@@ -16,7 +17,7 @@ There are various APIs for locking and unlocking annotations along with get/set 
 import { annotation } from '@cornerstonejs/tools';
 
 // locking of an annotation
-annotation.locking.setAnnotationLocked(annotation, (locked = true));
+annotation.locking.setAnnotationLocked(annotationUID, (locked = true));
 
 // get all the locked annotations
 annotation.locking.getAnnotationsLocked();
@@ -28,5 +29,5 @@ annotation.locking.unlockAllAnnotations();
 ## Read more
 
 :::note TIP
-Read more about the locking API [here](/api/tools/namespace/annotation#locking)
+Read more about the locking API [here](/docs/api/tools/namespaces/annotation/namespaces/locking)
 :::

@@ -153,15 +153,15 @@ if (configuration.examples) {
   );
   shell.ShellString(exampleIndexMarkdown).to(path.join(docsDir, 'examples.md'));
 
-  if (options.build == true) {
-    const conf = buildConfig(
-      exampleNames,
-      examplePaths,
-      distDir,
-      validPath(rootPath)
-    );
-    shell.ShellString(conf).to(webpackConfigPath);
+  const conf = buildConfig(
+    exampleNames,
+    examplePaths,
+    distDir,
+    validPath(rootPath)
+  );
+  shell.ShellString(conf).to(webpackConfigPath);
 
+  if (options.build == true) {
     shell.exec(`rspack build --config ${webpackConfigPath}`);
   } else {
     shell.exec(`rspack serve  --host 0.0.0.0 --config ${webpackConfigPath}`);

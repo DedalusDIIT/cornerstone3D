@@ -9,6 +9,7 @@ import {
   utilities,
 } from '@cornerstonejs/core';
 import convertColorSpace from './convertColorSpace';
+import isColorConversionRequired from './isColorConversionRequired';
 import decodeImageFrame from './decodeImageFrame';
 import getImageFrame from './getImageFrame';
 import getScalingParameters from './getScalingParameters';
@@ -29,8 +30,8 @@ async function createImage(
 ): Promise<DICOMLoaderIImage | Types.IImageFrame> {
   // whether to use RGBA for color images, default true as cs-legacy uses RGBA
   // but we don't need RGBA in cs3d, and it's faster, and memory-efficient
-  // in cs3d. We use LegacyCs, and is undefined. We need to use RGBA by default
-  const useRGBA = true;
+  // in cs3d
+  const useRGBA = options.useRGBA;
 
   // always preScale the pixel array unless it is asked not to
   options.preScale = {
@@ -47,7 +48,7 @@ async function createImage(
   const { MetadataModules } = Enums;
   const canvas = document.createElement('canvas');
   const imageFrame = getImageFrame(imageId);
-  (imageFrame as any).decodeLevel = options.decodeLevel;
+  imageFrame.decodeLevel = options.decodeLevel;
 
   options.allowFloatRendering = canRenderFloatTextures();
 
@@ -390,15 +391,3 @@ async function createImage(
 }
 
 export default createImage;
-
-function isJPEGBaseline8BitColor(imageFrame, transferSyntax) {
-  transferSyntax = transferSyntax || imageFrame.transferSyntax;
-
-  if (
-    imageFrame.bitsAllocated === 8 &&
-    transferSyntax === '1.2.840.10008.1.2.4.50' &&
-    (imageFrame.samplesPerPixel === 3 || imageFrame.samplesPerPixel === 4)
-  ) {
-    return true;
-  }
-}

@@ -1,10 +1,13 @@
 {
-  "name": "@cornerstonejs/tools",
-  "version": "4.20.0",
+  "name": "@dedalusdiit/cornerstone3d-tools",
+  "version": "4.20.0-ded1",
   "description": "Cornerstone3D Tools",
   "types": "./dist/esm/index.d.ts",
   "module": "./dist/esm/index.js",
   "repository": "https://github.com/DedalusDIIT/cornerstone3D",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com/"
+  },
   "files": [
     "./dist/"
   ],

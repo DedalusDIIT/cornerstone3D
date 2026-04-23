@@ -8,9 +8,8 @@ import { actorIsA, isImageActor } from '../utilities/actorCheck';
 import { setTransferFunctionNodes } from '../utilities/transferFunctionUtils';
 import type vtkVolume from '@kitware/vtk.js/Rendering/Core/Volume';
 import type { ViewportInput } from '../types/IViewport';
-import type { ImageActor } from '../types/IActor';
+import type { ImageActor, VolumeActor } from '../types/IActor';
 import BaseVolumeViewport from './BaseVolumeViewport';
-import type { Types } from '@cornerstonejs/core';
 /**
  * An object representing a 3-dimensional volume viewport. VolumeViewport3Ds are used to render
  * 3D volumes in their entirety, and not just load a single slice at a time.
@@ -39,7 +38,7 @@ class VolumeViewport3D extends BaseVolumeViewport {
     const actors = this.getActors();
     actors.forEach((actorEntry) => {
       if (actorIsA(actorEntry, 'vtkVolume')) {
-        const actor = actorEntry.actor as Types.VolumeActor;
+        const actor = actorEntry.actor as VolumeActor;
         const mapper = actor.getMapper();
 
         if (mapper && mapper.getInputData) {

@@ -112,10 +112,17 @@ function populateSmallestLargestPixelValues(
   }
 }
 
+// IVOCT SOP Class UIDs (Intravascular Optical Coherence Tomography)
+const IVOCT_SOP_CLASS_UIDS = new Set([
+  '1.2.840.10008.5.1.4.1.1.14.1', // IVOCT Image Storage - For Presentation
+  '1.2.840.10008.5.1.4.1.1.14.2', // IVOCT Image Storage - For Processing
+]);
+
 function getImagePixelModule(dataSet: DataSet): Types.ImagePixelModuleMetadata {
   const imagePixelModule = {
     samplesPerPixel: dataSet.uint16('x00280002'),
     photometricInterpretation: dataSet.string('x00280004'),
+    pixelPresentation: dataSet.string('x00089205'),
     rows: dataSet.uint16('x00280010'),
     columns: dataSet.uint16('x00280011'),
     bitsAllocated: dataSet.uint16('x00280100'),
@@ -124,12 +131,28 @@ function getImagePixelModule(dataSet: DataSet): Types.ImagePixelModuleMetadata {
     pixelRepresentation: dataSet.uint16('x00280103'),
     planarConfiguration: dataSet.uint16('x00280006'),
     pixelAspectRatio: dataSet.string('x00280034'),
+    redPaletteColorLookupTableDescriptor: [],
+    greenPaletteColorLookupTableDescriptor: [],
+    bluePaletteColorLookupTableDescriptor: [],
+    redPaletteColorLookupTableData: [],
+    greenPaletteColorLookupTableData: [],
+    bluePaletteColorLookupTableData: [],
   } as Types.ImagePixelModuleMetadata;
 
   populateSmallestLargestPixelValues(dataSet, imagePixelModule);
 
+  // Populate palette LUT data when:
+  //    Photometric Interpretation is 'PALETTE COLOR', OR
+  //    Photometric Interpretation is 'MONOCHROME2' AND Pixel Presentation
+  //    (0008,9205) is 'COLOR' AND the SOP Class UID identifies the image as
+  //    IVOCT
+  // In both cases the red palette LUT descriptor element must be present.
+  const sopClassUID = dataSet.string('x00080016');
   if (
-    imagePixelModule.photometricInterpretation === 'PALETTE COLOR' &&
+    (imagePixelModule.photometricInterpretation === 'PALETTE COLOR' ||
+      (imagePixelModule.photometricInterpretation === 'MONOCHROME2' &&
+        imagePixelModule.pixelPresentation === 'COLOR' &&
+        IVOCT_SOP_CLASS_UIDS.has(sopClassUID))) &&
     dataSet.elements.x00281101
   ) {
     populatePaletteColorLut(dataSet, imagePixelModule);

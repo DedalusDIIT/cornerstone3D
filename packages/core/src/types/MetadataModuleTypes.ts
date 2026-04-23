@@ -45,6 +45,7 @@ export interface ImagePlaneModuleMetadata {
 export interface ImagePixelModuleMetadata {
   samplesPerPixel: number;
   photometricInterpretation: string;
+  pixelPresentation?: string;
   rows: number;
   columns: number;
   bitsAllocated: number;

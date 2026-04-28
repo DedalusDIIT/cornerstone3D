@@ -31,12 +31,24 @@ function xhrRequest(
   const promise: LoaderXhrRequestPromise<ArrayBuffer> =
     new Promise<ArrayBuffer>(async (resolve, reject) => {
       options.open(xhr, url, defaultHeaders, params);
+
+      // Track headers set directly on xhr during beforeSend so we don't
+      // overwrite them with defaults (xhr.setRequestHeader is additive).
+      const headersSetInBeforeSend = new Set<string>();
+      const origSetRequestHeader = xhr.setRequestHeader.bind(xhr);
+      xhr.setRequestHeader = (name: string, value: string) => {
+        headersSetInBeforeSend.add(name);
+        origSetRequestHeader(name, value);
+      };
+
       const beforeSendHeaders = await options.beforeSend(
         xhr,
         imageId,
         defaultHeaders,
         params
       );
+
+      xhr.setRequestHeader = origSetRequestHeader;
 
       xhr.responseType = 'arraybuffer';
 
@@ -47,6 +59,9 @@ function xhrRequest(
           return;
         }
         if (key === 'Accept' && url.indexOf('accept=') !== -1) {
+          return;
+        }
+        if (headersSetInBeforeSend.has(key)) {
           return;
         }
         xhr.setRequestHeader(key, headers[key]);

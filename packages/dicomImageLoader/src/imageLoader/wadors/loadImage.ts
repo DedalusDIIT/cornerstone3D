@@ -22,6 +22,77 @@ const streamableTransferSyntaxes = new Set<string>([
 ]);
 
 /**
+ * Detect the transfer syntax by inspecting the first bytes of the pixel data.
+ * This is used as a fallback when the server does not include a transfer-syntax
+ * parameter in the Content-Type header.
+ */
+export function detectTransferSyntaxFromPixelData(
+  pixelData: Uint8Array | ArrayBuffer
+): string | undefined {
+  const data =
+    pixelData instanceof Uint8Array ? pixelData : new Uint8Array(pixelData);
+
+  if (data.length < 4) {
+    return undefined;
+  }
+
+  const isJPEG = data[0] === 0xff && data[1] === 0xd8;
+  if (isJPEG) {
+    return detectJPEGVariant(data);
+  }
+
+  // JPEG 2000 codestream: FF 4F FF 51
+  const isJ2KCodestream =
+    data[0] === 0xff &&
+    data[1] === 0x4f &&
+    data[2] === 0xff &&
+    data[3] === 0x51;
+  if (isJ2KCodestream) {
+    return '1.2.840.10008.1.2.4.90';
+  }
+
+  // JPEG 2000 JP2 file format: 00 00 00 0C 6A 50
+  const isJ2KFile =
+    data.length >= 6 &&
+    data[0] === 0x00 &&
+    data[1] === 0x00 &&
+    data[2] === 0x00 &&
+    data[3] === 0x0c &&
+    data[4] === 0x6a &&
+    data[5] === 0x50;
+  if (isJ2KFile) {
+    return '1.2.840.10008.1.2.4.90';
+  }
+
+  return undefined;
+}
+
+// SOF marker to DICOM transfer syntax mapping
+const jpegSOFMap: Record<number, string> = {
+  0xc0: '1.2.840.10008.1.2.4.50', // SOF0 - JPEG Baseline
+  0xc3: '1.2.840.10008.1.2.4.70', // SOF3 - JPEG Lossless
+  0xf7: '1.2.840.10008.1.2.4.80', // SOF55 - JPEG-LS
+};
+
+function detectJPEGVariant(data: Uint8Array): string {
+  for (let i = 2; i < data.length - 1; i++) {
+    if (data[i] !== 0xff) {
+      continue;
+    }
+    const marker = data[i + 1];
+    if (jpegSOFMap[marker]) {
+      return jpegSOFMap[marker];
+    }
+    // SOS = Start of Scan - stop looking for SOF beyond this
+    if (marker === 0xda) {
+      break;
+    }
+  }
+  // Generic JPEG fallback
+  return '1.2.840.10008.1.2.4.50';
+}
+
+/**
  * Helper method to extract the transfer-syntax from the response of the server.
  * @param {string} contentType The value of the content-type header as returned by the WADO-RS server.
  * @return The transfer-syntax as announced by the server, or Implicit Little Endian by default.
@@ -147,9 +218,17 @@ function loadImage(
           done = true,
           extractDone = true,
         } = result;
-        const transferSyntax = getTransferSyntaxForContentType(
+        let transferSyntax = getTransferSyntaxForContentType(
           result.contentType
         );
+        // If the server didn't specify a transfer syntax in Content-Type,
+        // detect it from the pixel data bytes.
+        if (transferSyntax === '1.2.840.10008.1.2' && pixelData?.length) {
+          const detected = detectTransferSyntaxFromPixelData(pixelData);
+          if (detected) {
+            transferSyntax = detected;
+          }
+        }
         if (!extractDone && !streamableTransferSyntaxes.has(transferSyntax)) {
           continue;
         }

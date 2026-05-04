@@ -7,6 +7,13 @@ import findIndexOfString from './findIndexOfString';
 import getPixelData from './getPixelData';
 import metaDataManager from './metaDataManager';
 import loadImage from './loadImage';
+import {
+  setFrameBatchSize,
+  getFrameBatchSize,
+  setFrameBatchEnabled,
+  getFrameBatchEnabled,
+  clearFrameCache,
+} from './frameBatchLoader';
 import register from './register';
 
 const metaData = {
@@ -24,6 +31,11 @@ export default {
   loadImage,
   metaDataManager,
   register,
+  setFrameBatchSize,
+  getFrameBatchSize,
+  setFrameBatchEnabled,
+  getFrameBatchEnabled,
+  clearFrameCache,
 };
 
 export {
@@ -34,3 +46,11 @@ export {
   metaDataManager,
   register,
 };
+
+export {
+  setFrameBatchSize,
+  getFrameBatchSize,
+  setFrameBatchEnabled,
+  getFrameBatchEnabled,
+  clearFrameCache,
+} from './frameBatchLoader';

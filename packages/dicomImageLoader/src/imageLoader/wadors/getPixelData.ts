@@ -5,6 +5,7 @@ import streamRequest from '../internal/streamRequest';
 import rangeRequest from '../internal/rangeRequest';
 import extractMultipart from './extractMultipart';
 import { getImageQualityStatus } from './getImageQualityStatus';
+import { getFrameBatchPixelData } from './frameBatchLoader';
 import type { CornerstoneWadoRsLoaderOptions } from './loadImage';
 
 function getPixelData(
@@ -47,6 +48,21 @@ function getPixelData(
   // Use the streaming parser only when configured to do so
   if ((retrieveOptions as Types.StreamingRetrieveOptions).streaming) {
     return streamRequest(url, imageId, headers, options);
+  }
+
+  /**
+   * Try frame-list batching for simple XHR requests with /frames/N URLs.
+   * This collects frames requested in the same microtask and fetches them
+   * in a single /frames/1,2,...,N request.
+   */
+  const batchResult = getFrameBatchPixelData(
+    url,
+    imageId,
+    mediaType,
+    retrieveOptions
+  );
+  if (batchResult != null) {
+    return batchResult;
   }
 
   /**

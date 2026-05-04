@@ -111,3 +111,104 @@ export function uint8ArrayToString(data, offset, length) {
 
   return str;
 }
+
+export interface ExtractedFrame {
+  contentType: string;
+  pixelData: ArrayBuffer;
+}
+
+/**
+ * Extracts all parts from a multipart/related response.
+ * Each part corresponds to one frame's pixel data.
+ *
+ * @param contentType - the Content-Type header from the HTTP response
+ * @param imageFrameAsArrayBuffer - the full response body
+ * @returns an array of extracted frames with their content type and pixel data
+ */
+export function extractAllMultipartParts(
+  contentType: string,
+  imageFrameAsArrayBuffer: ArrayBuffer
+): ExtractedFrame[] {
+  const response = new Uint8Array(imageFrameAsArrayBuffer);
+
+  if (!contentType.includes('multipart')) {
+    return [{ contentType, pixelData: imageFrameAsArrayBuffer }];
+  }
+
+  const parts: ExtractedFrame[] = [];
+  let searchOffset = 0;
+
+  // Find the boundary string from the first part's headers
+  const firstHeaderEnd = findIndexOfString(response, '\r\n\r\n', 0);
+  if (firstHeaderEnd === -1) {
+    throw new Error('invalid response - no multipart mime header');
+  }
+
+  const firstHeader = uint8ArrayToString(response, 0, firstHeaderEnd);
+  const headerLines = firstHeader.split('\r\n');
+  const boundary = findBoundary(headerLines);
+  if (!boundary) {
+    throw new Error('invalid response - no boundary marker');
+  }
+
+  // Iterate over each part
+  while (searchOffset < response.length) {
+    // Find the next part header end
+    const headerEnd = findIndexOfString(response, '\r\n\r\n', searchOffset);
+    if (headerEnd === -1) {
+      break;
+    }
+
+    // Parse headers for this part
+    const partHeader = uint8ArrayToString(
+      response,
+      searchOffset,
+      headerEnd - searchOffset
+    );
+    const partHeaderLines = partHeader.split('\r\n');
+    const partContentType = findContentType(partHeaderLines) || contentType;
+
+    const dataStart = headerEnd + 4; // skip \r\n\r\n
+
+    // Find the next boundary after the data
+    const nextBoundary = findIndexOfString(response, boundary, dataStart);
+    if (nextBoundary === -1) {
+      // Last part - take remaining data (minus trailing \r\n if present)
+      const endOffset =
+        response.length >= 2 &&
+        response.at(-2) === 0x0d &&
+        response.at(-1) === 0x0a
+          ? response.length - 2
+          : response.length;
+      if (dataStart < endOffset) {
+        parts.push({
+          contentType: partContentType,
+          pixelData: imageFrameAsArrayBuffer.slice(dataStart, endOffset),
+        });
+      }
+      break;
+    }
+
+    // Exclude the \r\n before the boundary
+    const dataEnd = nextBoundary - 2;
+    if (dataStart < dataEnd) {
+      parts.push({
+        contentType: partContentType,
+        pixelData: imageFrameAsArrayBuffer.slice(dataStart, dataEnd),
+      });
+    }
+
+    // Move past the boundary line to the next part
+    searchOffset = nextBoundary + boundary.length;
+    // Skip \r\n after boundary
+    if (
+      searchOffset + 1 < response.length &&
+      response[searchOffset] === 0x0d &&
+      response[searchOffset + 1] === 0x0a
+    ) {
+      searchOffset += 2;
+    }
+  }
+
+  return parts;
+}

@@ -75,16 +75,43 @@ const jpegSOFMap: Record<number, string> = {
 };
 
 function detectJPEGVariant(data: Uint8Array): string {
-  for (let i = 2; i < data.length - 1; i++) {
+  let i = 2;
+  while (i < data.length - 1) {
+    // Find the next 0xFF marker prefix
     if (data[i] !== 0xff) {
+      i++;
       continue;
     }
     const marker = data[i + 1];
+
+    // Check for SOF markers that identify the JPEG variant
     if (jpegSOFMap[marker]) {
       return jpegSOFMap[marker];
     }
     // SOS = Start of Scan - stop looking for SOF beyond this
     if (marker === 0xda) {
+      break;
+    }
+
+    // FF 00 is byte stuffing, not a real marker — skip it
+    if (marker === 0x00) {
+      i += 2;
+      continue;
+    }
+
+    // Standalone markers (TEM, RST0-RST7, SOI, EOI) have no length field
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
+      i += 2;
+      continue;
+    }
+
+    // All other markers have a 2-byte big-endian length field that includes
+    // the length bytes themselves. Skip past the entire segment to avoid
+    // false matches inside APP marker payloads.
+    if (i + 3 < data.length) {
+      const segmentLength = (data[i + 2] << 8) | data[i + 3];
+      i += 2 + segmentLength;
+    } else {
       break;
     }
   }

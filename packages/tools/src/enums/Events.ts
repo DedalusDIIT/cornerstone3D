@@ -33,6 +33,19 @@ enum Events {
    */
   TOOL_MODE_CHANGED = 'CORNERSTONE_TOOLS_TOOL_MODE_CHANGED',
 
+  CROSSHAIR_TOOL_CENTER_CHANGED = 'CORNERSTONE_TOOLS_CROSSHAIR_TOOL_CENTER_CHANGED',
+
+  VOLUMECROPPINGCONTROL_TOOL_CHANGED = 'CORNERSTONE_TOOLS_VOLUMECROPPINGCONTROL_TOOL_CHANGED',
+
+  VOLUMECROPPING_TOOL_CHANGED = 'CORNERSTONE_TOOLS_VOLUMECROPPING_TOOL_CHANGED',
+
+  /**
+   * Triggers on the eventTarget when a stack prefetch has been completed (i.e., the indicesToRequest list
+   * has been emptied). It is triggered both by the stackPrefetch and stackContextPrefetch mechanism.
+   * See what event detail is included in {@link EventTypes.StackPrefetchCompleteEventDetail | Stack Prefetch Complete Event Detail}.
+   */
+  STACK_PREFETCH_COMPLETE = 'CORNERSTONE_TOOLS_STACK_PREFETCH_COMPLETE',
+
   ///////////////////////////////////////
   //            Annotations
   ///////////////////////////////////////
@@ -103,6 +116,12 @@ enum Events {
   ANNOTATION_RENDERED = 'CORNERSTONE_TOOLS_ANNOTATION_RENDERED',
 
   /**
+   * Triggers on the eventTarget when an annotation cut merge process is completed.
+   * It starts when the users releases the mouse button in contour segmentation annotations
+   */
+  ANNOTATION_CUT_MERGE_PROCESS_COMPLETED = 'CORNERSTONE_TOOLS_ANNOTATION_CUT_MERGE_PROCESS_COMPLETED',
+
+  /**
    * Triggers on the eventTarget when an annotation interpolation process completed.
    * Make use of {@link EventTypes.AnnotationInterpolationCompletedEventType | Annotation Interpolation process Completed Event Type}
    * for typing your event listeners for this annotation interpolation complete event, and see what
@@ -139,6 +158,13 @@ enum Events {
   SEGMENTATION_RENDERED = 'CORNERSTONE_TOOLS_SEGMENTATION_RENDERED',
 
   /**
+   * Triggers on the eventTarget when a Segmentation representation of a toolGroup is added in the state manager.
+   */
+  SEGMENTATION_REPRESENTATION_ADDED = 'CORNERSTONE_TOOLS_SEGMENTATION_REPRESENTATION_ADDED',
+
+  SEGMENTATION_ADDED = 'CORNERSTONE_TOOLS_SEGMENTATION_ADDED',
+
+  /**
    * Triggers on the eventTarget when a Segmentation representation of a toolGroup is modified in the state manager.
    * Make use of {@link EventTypes.SegmentationRepresentationModifiedEventType | Segmentation Representation Modified Event Type}
    * for typing your event listeners for this segmentation representation modified event, and see what
@@ -169,6 +195,20 @@ enum Events {
    * event detail is included in {@link EventTypes.SegmentationDataModifiedEventDetail | Segmentation Data Modified Event Detail}.
    */
   SEGMENTATION_DATA_MODIFIED = 'CORNERSTONE_TOOLS_SEGMENTATION_DATA_MODIFIED',
+
+  /**
+   * Triggers on the eventTarget when a history undo operation is performed.
+   * Event detail includes information about the operation type, memo ID, and
+   * whether it was an undo or redo operation.
+   */
+  HISTORY_UNDO = 'CORNERSTONE_TOOLS_HISTORY_UNDO',
+
+  /**
+   * Triggers on the eventTarget when a history redo operation is performed.
+   * Event detail includes information about the operation type, memo ID, and
+   * whether it was an undo or redo operation.
+   */
+  HISTORY_REDO = 'CORNERSTONE_TOOLS_HISTORY_REDO',
 
   ///////////////////////////////////////
   //         Keyboard Events

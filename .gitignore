@@ -1,6 +1,8 @@
 # dependencies
+CLAUDE.md
 node_modules
-
+.nyc_output
+.nx
 .vscode/settings.json
 # builds
 build
@@ -32,6 +34,7 @@ package-lock.json
 
 # Example output
 .static-examples
+.static-examples-playwright
 
 # Docs output
 packages/docs/dist/
@@ -55,3 +58,13 @@ coverage/
 /playwright/.cache/
 /tests/test-results/
 /tests/playwright-report/
+
+# Add Playwright HTML report output from playwright.config.ts
+/packages/docs/static/playwright-report/
+.cursor
+
+**/.claude/settings.local.json
+CLAUDE.md
+# External repositories
+vtk-js/
+.ohif-downstream/

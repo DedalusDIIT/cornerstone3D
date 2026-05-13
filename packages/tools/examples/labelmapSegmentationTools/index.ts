@@ -1,6 +1,6 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   RenderingEngine,
-  Types,
   Enums,
   setVolumesForViewports,
   volumeLoader,
@@ -14,7 +14,6 @@ import {
   addDropdownToToolbar,
   addSliderToToolbar,
   setCtTransferFunctionForVolumeActor,
-  getLocalUrl,
 } from '../../../../utils/demo/helpers';
 import * as cornerstoneTools from '@cornerstonejs/tools';
 
@@ -24,7 +23,6 @@ console.warn(
 );
 
 const {
-  SegmentationDisplayTool,
   ToolGroupManager,
   Enums: csToolsEnums,
   segmentation,
@@ -36,20 +34,37 @@ const {
   PanTool,
   ZoomTool,
   StackScrollTool,
-  StackScrollMouseWheelTool,
   utilities: cstUtils,
 } = cornerstoneTools;
 
 const { MouseBindings, KeyboardBindings } = csToolsEnums;
 const { ViewportType } = Enums;
 const { segmentation: segmentationUtils } = cstUtils;
+type ThresholdConfiguration = {
+  range: Types.Point2;
+  isDynamic: boolean;
+  dynamicRadius: number;
+};
+type ThresholdOption = {
+  threshold: ThresholdConfiguration;
+};
 
 // Define a unique id for the volume
 const volumeName = 'CT_VOLUME_ID'; // Id of the volume less loader prefix
-const volumeLoaderScheme = 'cornerstoneStreamingImageVolume'; // Loader id which defines which volume loader to use
-const volumeId = `${volumeLoaderScheme}:${volumeName}`; // VolumeId with loader id + volume id
 const segmentationId = 'MY_SEGMENTATION_ID';
 const toolGroupId = 'MY_TOOLGROUP_ID';
+const volumeLoaderScheme = 'cornerstoneStreamingImageVolume'; // Loader id which defines which volume loader to use
+const volumeId = `${volumeLoaderScheme}:${volumeName}`;
+// const volumeId = encodeVolumeIdInfo({
+//   loader: 'fakeVolumeLoader',
+//   name: 'volumeURI',
+//   rows: 100,
+//   columns: 100,
+//   slices: 10,
+//   xSpacing: 1,
+//   ySpacing: 1,
+//   zSpacing: 1,
+// });
 
 // ======== Set up page ======== //
 setTitleAndDescription(
@@ -159,28 +174,48 @@ addDropdownToToolbar({
   },
 });
 
-const thresholdOptions = new Map<string, any>();
+const thresholdOptions = new Map<string, ThresholdOption>();
 thresholdOptions.set('CT Fat: (-150, -70)', {
-  threshold: [-150, -70],
+  threshold: {
+    range: [-150, -70] as Types.Point2,
+    isDynamic: false,
+    dynamicRadius: 0,
+  },
 });
 thresholdOptions.set('CT Bone: (200, 1000)', {
-  threshold: [200, 1000],
+  threshold: {
+    range: [200, 1000] as Types.Point2,
+    isDynamic: false,
+    dynamicRadius: 0,
+  },
 });
+
+const defaultThresholdOption = thresholdOptions.keys().next().value;
+const defaultThresholdConfiguration = thresholdOptions.get(
+  defaultThresholdOption
+)?.threshold ?? {
+  range: [-150, -70] as Types.Point2,
+  isDynamic: false,
+  dynamicRadius: 0,
+};
 
 addDropdownToToolbar({
   options: {
     values: Array.from(thresholdOptions.keys()),
-    defaultValue: thresholdOptions[0],
+    defaultValue: defaultThresholdOption,
   },
   onSelectedValueChange: (nameAsStringOrNumber) => {
     const name = String(nameAsStringOrNumber);
 
     const thresholdArgs = thresholdOptions.get(name);
 
+    if (!thresholdArgs?.threshold) {
+      return;
+    }
+
     segmentationUtils.setBrushThresholdForToolGroup(
       toolGroupId,
-      thresholdArgs.threshold,
-      thresholdArgs
+      thresholdArgs.threshold
     );
   },
 });
@@ -199,7 +234,7 @@ addSliderToToolbar({
 
 async function addSegmentationsToState() {
   // Create a segmentation of the same resolution as the source data
-  await volumeLoader.createAndCacheDerivedSegmentationVolume(volumeId, {
+  volumeLoader.createAndCacheDerivedLabelmapVolume(volumeId, {
     volumeId: segmentationId,
   });
 
@@ -236,9 +271,7 @@ async function run() {
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(ZoomTool);
-  cornerstoneTools.addTool(StackScrollMouseWheelTool);
   cornerstoneTools.addTool(StackScrollTool);
-  cornerstoneTools.addTool(SegmentationDisplayTool);
   cornerstoneTools.addTool(RectangleScissorsTool);
   cornerstoneTools.addTool(CircleScissorsTool);
   cornerstoneTools.addTool(SphereScissorsTool);
@@ -251,10 +284,8 @@ async function run() {
   // Manipulation Tools
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(ZoomTool.toolName);
-  toolGroup.addTool(StackScrollMouseWheelTool.toolName);
 
   // Segmentation Tools
-  toolGroup.addTool(SegmentationDisplayTool.toolName);
   toolGroup.addTool(RectangleScissorsTool.toolName);
   toolGroup.addTool(CircleScissorsTool.toolName);
   toolGroup.addTool(SphereScissorsTool.toolName);
@@ -275,17 +306,17 @@ async function run() {
     }
   );
   toolGroup.addToolInstance(
-    brushInstanceNames.CircularEraser,
-    BrushTool.toolName,
-    {
-      activeStrategy: brushStrategies.CircularEraser,
-    }
-  );
-  toolGroup.addToolInstance(
     brushInstanceNames.SphereBrush,
     BrushTool.toolName,
     {
       activeStrategy: brushStrategies.SphereBrush,
+    }
+  );
+  toolGroup.addToolInstance(
+    brushInstanceNames.CircularEraser,
+    BrushTool.toolName,
+    {
+      activeStrategy: brushStrategies.CircularEraser,
     }
   );
   toolGroup.addToolInstance(
@@ -312,18 +343,27 @@ async function run() {
     BrushTool.toolName,
     {
       activeStrategy: brushStrategies.ThresholdCircle,
+      threshold: defaultThresholdConfiguration,
     }
   );
-  toolGroup.setToolEnabled(SegmentationDisplayTool.toolName);
 
   toolGroup.setToolActive(brushInstanceNames.CircularBrush, {
     bindings: [{ mouseButton: MouseBindings.Primary }],
   });
 
+  toolGroup.setToolActive(brushInstanceNames.CircularEraser, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Primary,
+        modifierKey: KeyboardBindings.Shift,
+      },
+    ],
+  });
+
   toolGroup.setToolActive(ZoomTool.toolName, {
     bindings: [
       {
-        mouseButton: MouseBindings.Primary, // Shift Left Click
+        mouseButton: MouseBindings.Auxiliary, // Shift Middle
         modifierKey: KeyboardBindings.Shift,
       },
     ],
@@ -347,9 +387,6 @@ async function run() {
       },
     ],
   });
-  // As the Stack Scroll mouse wheel is a tool using the `mouseWheelCallback`
-  // hook instead of mouse buttons, it does not need to assign any mouse button.
-  toolGroup.setToolActive(StackScrollMouseWheelTool.toolName);
 
   // Get Cornerstone imageIds for the source data and fetch metadata into RAM
   const imageIds = await createImageIdsAndCacheMetaData({
@@ -357,14 +394,15 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot:
-      getLocalUrl() || 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Define a volume in memory
   const volume = await volumeLoader.createAndCacheVolume(volumeId, {
     imageIds,
   });
+
+  volume.load();
 
   // Add some segmentations based on the source data volume
   await addSegmentationsToState();
@@ -415,7 +453,7 @@ async function run() {
   toolGroup.addViewport(viewportId3, renderingEngineId);
 
   // Set the volume to load
-  volume.load();
+  // volume.load();
 
   // Set volumes on the viewports
   await setVolumesForViewports(
@@ -424,16 +462,20 @@ async function run() {
     [viewportId1, viewportId2, viewportId3]
   );
 
-  // Add the segmentation representation to the toolgroup
-  await segmentation.addSegmentationRepresentations(toolGroupId, [
-    {
-      segmentationId,
-      type: csToolsEnums.SegmentationRepresentations.Labelmap,
-    },
-  ]);
+  // Add the segmentation representation to the viewports
+  const segmentationRepresentation = {
+    segmentationId,
+    type: csToolsEnums.SegmentationRepresentations.Labelmap,
+  };
+
+  await segmentation.addLabelmapRepresentationToViewportMap({
+    [viewportId1]: [segmentationRepresentation],
+    [viewportId2]: [segmentationRepresentation],
+    [viewportId3]: [segmentationRepresentation],
+  });
 
   // Render the image
-  renderingEngine.renderViewports([viewportId1, viewportId2, viewportId3]);
+  renderingEngine.render();
 }
 
 run();

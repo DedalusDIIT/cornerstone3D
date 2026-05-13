@@ -6,12 +6,12 @@ import { utilities } from '@cornerstonejs/core';
 import cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
 
 import ptScalingMetaDataProvider from './ptScalingMetaDataProvider';
-import getPixelSpacingInformation from './getPixelSpacingInformation';
 import { convertMultiframeImageIds } from './convertMultiframeImageIds';
 import removeInvalidTags from './removeInvalidTags';
 
 const { DicomMetaDictionary } = dcmjs.data;
-const { calibratedPixelSpacingMetadataProvider } = utilities;
+const { calibratedPixelSpacingMetadataProvider, getPixelSpacingInformation } =
+  utilities;
 
 /**
 /**
@@ -87,18 +87,24 @@ export default async function createImageIdsAndCacheMetaData({
     let instanceMetaData =
       cornerstoneDICOMImageLoader.wadors.metaDataManager.get(imageId);
 
+    if (!instanceMetaData) {
+      return;
+    }
+
     // It was using JSON.parse(JSON.stringify(...)) before but it is 8x slower
     instanceMetaData = removeInvalidTags(instanceMetaData);
 
     if (instanceMetaData) {
       // Add calibrated pixel spacing
       const metadata = DicomMetaDictionary.naturalizeDataset(instanceMetaData);
-      const pixelSpacing = getPixelSpacingInformation(metadata);
+      const pixelSpacingInformation = getPixelSpacingInformation(metadata);
+      const pixelSpacing = pixelSpacingInformation?.PixelSpacing;
 
       if (pixelSpacing) {
         calibratedPixelSpacingMetadataProvider.add(imageId, {
           rowPixelSpacing: parseFloat(pixelSpacing[0]),
           columnPixelSpacing: parseFloat(pixelSpacing[1]),
+          type: pixelSpacingInformation.type,
         });
       }
     }

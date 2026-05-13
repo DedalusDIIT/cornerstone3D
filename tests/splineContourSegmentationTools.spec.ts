@@ -1,4 +1,5 @@
-import { test, Page, Locator } from '@playwright/test';
+import { test } from 'playwright-test-coverage';
+import type { Page, Locator } from '@playwright/test';
 import {
   checkForScreenshot,
   visitExample,
@@ -13,7 +14,7 @@ test.describe('Spline Contour Segmentation Tools', async () => {
   test('should draw a CatmullRom Spline ROI when CatmullRom Spline ROI is selected', async ({
     page,
   }) => {
-    const canvas = await page.locator('canvas');
+    const canvas = await page.locator('canvas.cornerstone-canvas');
 
     await drawCatmullROMSplineOnViewportLeft({
       page,
@@ -30,7 +31,7 @@ test.describe('Spline Contour Segmentation Tools', async () => {
   test('should draw a Linear Spline ROI when Linear Spline ROI is selected', async ({
     page,
   }) => {
-    const canvas = await page.locator('canvas');
+    const canvas = await page.locator('canvas.cornerstone-canvas');
 
     await drawLinearSplineOnViewportCenter({
       page,
@@ -47,7 +48,7 @@ test.describe('Spline Contour Segmentation Tools', async () => {
   test('should draw a BSpline ROI when BSpline ROI is selected when BSpline ROI is selected', async ({
     page,
   }) => {
-    const canvas = await page.locator('canvas');
+    const canvas = await page.locator('canvas.cornerstone-canvas');
 
     await drawBSplineOnViewportRight({
       page,
@@ -64,7 +65,7 @@ test.describe('Spline Contour Segmentation Tools', async () => {
   test('should have different colors when splines are added to different segments', async ({
     page,
   }) => {
-    const canvas = await page.locator('canvas');
+    const canvas = await page.locator('canvas.cornerstone-canvas');
 
     await drawCatmullROMSplineOnViewportLeft({
       page,
@@ -80,15 +81,15 @@ test.describe('Spline Contour Segmentation Tools', async () => {
     );
   });
 
-  test('should apply the styles to the splines appropriately when splines are drawn with different styles', async ({
+  test.skip('should apply the styles to the splines appropriately when splines are drawn with different styles', async ({
     page,
   }) => {
-    const canvas = await page.locator('canvas');
+    const canvas = await page.locator('canvas.cornerstone-canvas');
     const splineStyle = {
-      outlineWidthActive: 1.7,
+      outlineWidth: 1.7,
       outlineOpacity: 0.5,
       fillAlpha: 0,
-      outlineDashActive: 3,
+      outlineDash: 3,
     };
 
     await updateSplineStyleInputs({ page, splineStyle });

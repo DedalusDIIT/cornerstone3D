@@ -3,13 +3,29 @@ const CANVAS_CSS_CLASS = 'cornerstone-canvas';
 export const EPSILON = 1e-4;
 
 /**
+ * The canvas creator is used for applications where the element isn't
+ * defined/setup such as nodejs environments.
+ */
+let canvasCreator;
+
+/**
  * Create a canvas and append it to the element
  *
  * @param element - An HTML Element
  * @returns canvas - A Canvas DOM element
  */
-function createCanvas(element: Element | HTMLDivElement): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
+export function createCanvas(
+  element: Element | HTMLDivElement,
+  width = 512,
+  height = 512
+): HTMLCanvasElement {
+  const canvas = canvasCreator
+    ? canvasCreator(width, height)
+    : document.createElement('canvas');
+
+  if (!element) {
+    return canvas;
+  }
 
   canvas.style.position = 'absolute';
   canvas.style.width = '100%';
@@ -41,6 +57,76 @@ export function createViewportElement(element: HTMLDivElement): HTMLDivElement {
 }
 
 /**
+ * Allows setting the canvas creator for rendering into.  This provides direct
+ * render capabilities for environments such as nodejs
+ * @param canvasCreatorArg
+ */
+export function setCanvasCreator(canvasCreatorArg) {
+  canvasCreator = canvasCreatorArg;
+}
+
+/**
+ * Extent to match when updating from a render result (e.g. offscreen canvas or viewport size).
+ */
+export type ViewportCanvasExtent =
+  | HTMLCanvasElement
+  | { width: number; height: number };
+
+/**
+ * Updates an on-screen viewport canvas size and aspect ratio so it fills
+ * correctly and resizes without flicker. Handles two cases:
+ *
+ * 1. No extent/offscreen: size from the canvas's displayed rect (e.g. when
+ *    enabling viewports or after layout change). Returns undefined.
+ *
+ * 2. Extent or offscreen canvas provided: size to match the rendered extent.
+ *    Returns true if the canvas was updated (caller should redraw), false if
+ *    it already matched.
+ *
+ * @param canvas - The on-screen canvas to update.
+ * @param extentOrOffscreen - Optional. When an HTMLCanvasElement, use its
+ *   width/height as the target extent. When an object with width and height
+ *   (e.g. viewport sWidth/sHeight when the offscreen canvas is shared), use that.
+ * @returns undefined when no extent/offscreen (element-rect update);
+ *   true when canvas was updated (rendering/redraw needed);
+ *   false when canvas already matched the extent.
+ */
+export function updateCanvasSizeAndAspectRatio(
+  canvas: HTMLCanvasElement,
+  extentOrOffscreen?: ViewportCanvasExtent
+): boolean | undefined {
+  if (extentOrOffscreen === undefined) {
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.round(rect.width * devicePixelRatio);
+    const h = Math.round(rect.height * devicePixelRatio);
+    if (w > 0 && h > 0) {
+      canvas.width = w;
+      canvas.height = h;
+      canvas.style.aspectRatio = `${w} / ${h}`;
+    }
+    return undefined;
+  }
+
+  const { width: targetW, height: targetH } = extentOrOffscreen;
+
+  if (targetW < 1 || targetH < 1) {
+    return false;
+  }
+
+  const needsUpdate = canvas.width !== targetW || canvas.height !== targetH;
+
+  if (needsUpdate) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+    canvas.style.aspectRatio = `${targetW} / ${targetH}`;
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Create a canvas or returns the one that already exists for a given element.
  * It first checks if the element has a canvas, if not it creates one and returns it.
  * The canvas is updated for:
@@ -53,9 +139,7 @@ export function createViewportElement(element: HTMLDivElement): HTMLDivElement {
  * @param element - An HTML Element
  * @returns canvas a Canvas DOM element
  */
-export default function getOrCreateCanvas(
-  element: HTMLDivElement
-): HTMLCanvasElement {
+export function getOrCreateCanvas(element: HTMLDivElement): HTMLCanvasElement {
   const canvasSelector = `canvas.${CANVAS_CSS_CLASS}`;
   const viewportElement = `div.${VIEWPORT_ELEMENT}`;
 
@@ -64,8 +148,13 @@ export default function getOrCreateCanvas(
   const internalDiv =
     element.querySelector(viewportElement) || createViewportElement(element);
 
-  const canvas = (internalDiv.querySelector(canvasSelector) ||
-    createCanvas(internalDiv)) as HTMLCanvasElement;
+  const existingCanvas: HTMLCanvasElement | null =
+    internalDiv.querySelector(canvasSelector);
+  if (existingCanvas) {
+    return existingCanvas;
+  }
+
+  const canvas = createCanvas(internalDiv);
   // Fit the canvas into the div
   const rect = internalDiv.getBoundingClientRect();
   const devicePixelRatio = window.devicePixelRatio || 1;
@@ -77,13 +166,20 @@ export default function getOrCreateCanvas(
   // this hasn't been observed.
   const width = Math.ceil(rect.width * devicePixelRatio);
   const height = Math.ceil(rect.height * devicePixelRatio);
-  canvas.width = width;
-  canvas.height = height;
+  // does weird things given 0 or NaN for the division
+  // Also weird when the canvas size is zero
+  if (width > 0 && height > 0) {
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.aspectRatio = `${width} / ${height}`;
+  }
   // Reset the size of the canvas to be the number of physical pixels,
   // expressed as CSS pixels, with a tiny extra amount to prevent clipping
   // to the next lower size in the physical display.
-  canvas.style.width = (width + EPSILON) / devicePixelRatio + 'px';
-  canvas.style.height = (height + EPSILON) / devicePixelRatio + 'px';
+  // canvas.style.width = (width + EPSILON) / devicePixelRatio + 'px';
+  // canvas.style.height = (height + EPSILON) / devicePixelRatio + 'px';
 
   return canvas;
 }
+
+export default getOrCreateCanvas;

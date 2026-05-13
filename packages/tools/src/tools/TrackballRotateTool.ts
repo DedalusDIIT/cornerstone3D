@@ -7,7 +7,7 @@ import {
 } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 import { mat4, vec3 } from 'gl-matrix';
-import { EventTypes, PublicToolProps, ToolProps } from '../types';
+import type { EventTypes, PublicToolProps, ToolProps } from '../types';
 import { BaseTool } from './base';
 import { getToolGroup } from '../store/ToolGroupManager';
 
@@ -17,6 +17,7 @@ class TrackballRotateTool extends BaseTool {
   mouseDragCallback: (evt: EventTypes.InteractionEventType) => void;
   cleanUp: () => void;
   _resizeObservers = new Map();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _viewportAddedListener: (evt: any) => void;
   _hasResolutionChanged = false;
 
@@ -26,6 +27,7 @@ class TrackballRotateTool extends BaseTool {
       supportedInteractionTypes: ['Mouse', 'Touch'],
       configuration: {
         rotateIncrementDegrees: 2,
+        rotateSampleDistanceFactor: 2, // Factor to increase sample distance (lower resolution) when rotating
       },
     }
   ) {
@@ -42,10 +44,21 @@ class TrackballRotateTool extends BaseTool {
     const actorEntry = viewport.getDefaultActor();
     const actor = actorEntry.actor as Types.VolumeActor;
     const mapper = actor.getMapper();
+
+    const hasSampleDistance =
+      'getSampleDistance' in mapper || 'getCurrentSampleDistance' in mapper;
+
+    if (!hasSampleDistance) {
+      return true;
+    }
+
     const originalSampleDistance = mapper.getSampleDistance();
 
     if (!this._hasResolutionChanged) {
-      mapper.setSampleDistance(originalSampleDistance * 2);
+      const { rotateSampleDistanceFactor } = this.configuration;
+      mapper.setSampleDistance(
+        originalSampleDistance * rotateSampleDistanceFactor
+      );
       this._hasResolutionChanged = true;
 
       if (this.cleanUp !== null) {
@@ -94,7 +107,12 @@ class TrackballRotateTool extends BaseTool {
               return;
             }
             const { viewport } = element;
+
+            const viewPresentation = viewport.getViewPresentation();
+
             viewport.resetCamera();
+
+            viewport.setViewPresentation(viewPresentation);
             viewport.render();
           });
 

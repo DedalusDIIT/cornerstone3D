@@ -1,4 +1,5 @@
-import { RenderingEngine, Types, Enums } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { RenderingEngine, Enums } from '@cornerstonejs/core';
 import {
   initDemo,
   createImageIdsAndCacheMetaData,
@@ -14,6 +15,7 @@ console.warn(
 );
 
 const {
+  EraserTool,
   LengthTool,
   ProbeTool,
   ZoomTool,
@@ -24,7 +26,7 @@ const {
 } = cornerstoneTools;
 
 const { ViewportType } = Enums;
-const { MouseBindings } = csToolsEnums;
+const { MouseBindings, KeyboardBindings } = csToolsEnums;
 const renderingEngineId = 'myRenderingEngine';
 const viewportId = 'CT_STACK';
 const viewportId2 = 'CT_STACK2';
@@ -59,6 +61,7 @@ const toolsNames = [
   LengthTool.toolName,
   ProbeTool.toolName,
   UltrasoundDirectionalTool.toolName,
+  EraserTool.toolName,
 ];
 let selectedToolName = toolsNames[0];
 
@@ -107,6 +110,7 @@ async function run() {
   cornerstoneTools.addTool(ZoomTool);
   cornerstoneTools.addTool(PanTool);
   cornerstoneTools.addTool(UltrasoundDirectionalTool);
+  cornerstoneTools.addTool(EraserTool);
 
   // Define a tool group, which defines how mouse events map to tool commands for
   // Any viewport using the group
@@ -118,6 +122,7 @@ async function run() {
   toolGroup.addTool(ZoomTool.toolName);
   toolGroup.addTool(PanTool.toolName);
   toolGroup.addTool(UltrasoundDirectionalTool.toolName);
+  toolGroup.addTool(EraserTool.toolName);
 
   // Set the initial state of the tools, here we set one tool active on left click.
   // This means left click will draw that tool.
@@ -131,14 +136,22 @@ async function run() {
   toolGroup.setToolActive(ZoomTool.toolName, {
     bindings: [
       {
-        mouseButton: MouseBindings.Secondary, // Left Click
+        mouseButton: MouseBindings.Secondary, // Right Click
       },
     ],
   });
   toolGroup.setToolActive(PanTool.toolName, {
     bindings: [
       {
-        mouseButton: MouseBindings.Auxiliary, // Left Click
+        mouseButton: MouseBindings.Auxiliary, // Mouse Wheel Click
+      },
+    ],
+  });
+  toolGroup.setToolActive(EraserTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Primary, // Left Click
+        modifierKey: KeyboardBindings.Ctrl, // Ctrl Key
       },
     ],
   });
@@ -154,14 +167,14 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.1188.2803.699272945123913604672897602509',
     SOPInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.1188.2803.295285318555680716246271899544',
-    wadoRsRoot: 'https://d33do7qe4w26qo.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
   const imageIds2 = await createImageIdsAndCacheMetaData({
     StudyInstanceUID: '1.2.840.113663.1500.1.248223208.1.1.20110323.105903.687',
     SeriesInstanceUID:
       '1.2.840.113663.1500.1.248223208.2.1.20110323.105903.687',
     SOPInstanceUID: '1.2.840.113663.1500.1.248223208.3.10.20110323.110423.875',
-    wadoRsRoot: 'https://d33do7qe4w26qo.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Instantiate a rendering engine

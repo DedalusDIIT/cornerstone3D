@@ -1,4 +1,4 @@
-import { LoaderOptions } from '../../types';
+import type { LoaderOptions } from '../../types';
 
 let options: LoaderOptions = {
   // callback to open the object
@@ -6,7 +6,7 @@ let options: LoaderOptions = {
     xhr.open('get', url, true);
   },
   // callback allowing customization of the xhr (e.g. adding custom auth headers, cors, etc)
-  beforeSend(/* xhr, imageId */) {
+  beforeSend: async (/* xhr, imageId */) => {
     // before send code
   },
   // callback allowing modification of the xhr response before creating image objects
@@ -18,10 +18,6 @@ let options: LoaderOptions = {
     // image created code
   },
   strict: false,
-  decodeConfig: {
-    convertFloatPixelDataToInt: true,
-    use16BitDataType: false,
-  },
 };
 
 export function setOptions(newOptions: LoaderOptions): void {

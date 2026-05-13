@@ -1,4 +1,5 @@
-import { RenderingEngine, Types, Enums } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import { RenderingEngine, Enums } from '@cornerstonejs/core';
 import {
   initDemo,
   createImageIdsAndCacheMetaData,
@@ -81,6 +82,15 @@ async function run() {
   // Init Cornerstone and related libraries
   await initDemo();
 
+  const defaultToolStyles =
+    cornerstoneTools.annotation.config.style.getDefaultToolStyles();
+
+  defaultToolStyles.global.pointerStrokeWidth = 2.5;
+
+  cornerstoneTools.annotation.config.style.setDefaultToolStyles(
+    defaultToolStyles
+  );
+
   // Add tools to Cornerstone3D
   cornerstoneTools.addTool(LengthTool);
 
@@ -107,7 +117,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.334240657131972136850343327463',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.226151125820845824875394858561',
-    wadoRsRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Instantiate a rendering engine

@@ -1,6 +1,10 @@
-import { RenderingEngine, Types, Enums, CONSTANTS } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
+import {
+  RenderingEngine,
+  Enums,
+  init as csRenderInit,
+} from '@cornerstonejs/core';
 import { setTitleAndDescription } from '../../../../utils/demo/helpers';
-import { init as csRenderInit } from '@cornerstonejs/core';
 import { init as csToolsInit } from '@cornerstonejs/tools';
 
 import vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
@@ -64,7 +68,16 @@ function getSphereActor({
  */
 async function run() {
   // Init Cornerstone and related libraries
-  await csRenderInit();
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const debugMode = urlParams.get('debug') === 'true';
+
+  await csRenderInit({
+    debug: {
+      statsOverlay: debugMode,
+    },
+  });
+
   await csToolsInit();
 
   // Instantiate a rendering engine
@@ -77,16 +90,16 @@ async function run() {
     element,
     defaultOptions: {
       orientation: Enums.OrientationAxis.SAGITTAL,
-      background: <Types.Point3>[0.2, 0, 0.2],
+      background: [0.2, 0, 0.2] as Types.Point3,
     },
   };
 
   renderingEngine.enableElement(viewportInput);
 
   // Get the stack viewport that was created
-  const viewport = <Types.IVolumeViewport>(
-    renderingEngine.getViewport(viewportId)
-  );
+  const viewport = renderingEngine.getViewport(
+    viewportId
+  ) as Types.IVolumeViewport;
 
   const actor = getSphereActor({
     center: [0, 0, 0],

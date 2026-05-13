@@ -1,9 +1,9 @@
-import external from '../externalModules';
-import { ImageFrame, MetadataImagePixelModule } from '../types';
+import type { Types } from '@cornerstonejs/core';
+import { metaData } from '@cornerstonejs/core';
 
-function getImageFrame(imageId: string): ImageFrame {
-  const { cornerstone } = external;
-  const imagePixelModule: MetadataImagePixelModule = cornerstone.metaData.get(
+//
+function getImageFrame(imageId: string): Types.IImageFrame {
+  const imagePixelModule: Types.ImagePixelModuleMetadata = metaData.get(
     'imagePixelModule',
     imageId
   );
@@ -15,8 +15,7 @@ function getImageFrame(imageId: string): ImageFrame {
   // routed through the correct colour-rendering path in createImage.
   // Guarded additionally on IVOCT SOP Class UIDs to prevent any other MONOCHROME2
   // series that coincidentally carry these attributes from being misclassified.
-  const sopCommonModule =
-    cornerstone.metaData.get('sopCommonModule', imageId) || {};
+  const sopCommonModule = metaData.get('sopCommonModule', imageId) || {};
   const isIVOCT =
     sopCommonModule.sopClassUID === '1.2.840.10008.5.1.4.1.1.14.1' ||
     sopCommonModule.sopClassUID === '1.2.840.10008.5.1.4.1.1.14.2';

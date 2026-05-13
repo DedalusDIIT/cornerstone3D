@@ -1,9 +1,11 @@
 import type { Types } from '@cornerstonejs/core';
 
-import {
+import type {
   LabelmapSegmentationDataStack,
   LabelmapSegmentationDataVolume,
 } from './LabelmapTypes';
+import type vtkImageData from '@kitware/vtk.js/Common/DataModel/ImageData';
+import type { LabelmapMemo } from '../utilities/segmentation/createLabelmapMemo';
 
 type LabelmapToolOperationData = {
   segmentationId: string;
@@ -11,21 +13,35 @@ type LabelmapToolOperationData = {
   /**
    * The colours to use for previewing
    */
-  previewColors?: Record<number, [number, number, number, number]>;
+  previewColor?: [number, number, number, number];
+  previewSegmentIndex?: number;
+  //
   segmentsLocked: number[];
   viewPlaneNormal: number[];
   viewUp: number[];
-  strategySpecificConfiguration: any;
-  // constraintFn: (pointIJK: number) => boolean;
-  segmentationRepresentationUID: string;
+  activeStrategy: string;
   points: Types.Point3[];
   /**
-   * preview is used for sharing preview data between views/interactions with
-   * a tool, and needs to be maintained by the tool side in order to be able
-   * to accept/reject/update the preview information.
+   * Optional pair of world points describing the last stroke segment so the
+   * strategy can cover the full path instead of a single sample location.
    */
-  preview: any;
+  strokePointsWorld?: Types.Point3[];
+  voxelManager;
+  override: {
+    voxelManager: Types.IVoxelManager<number>;
+    imageData: vtkImageData;
+  };
   toolGroupId: string;
+  /**
+   * Creates a labelmap memo, given the preview information and segment voxels.
+   * May return an already existing one when used for extension.
+   */
+  createMemo: (
+    segmentId,
+    segmentVoxels,
+    previewVoxels?,
+    previewMemo?
+  ) => LabelmapMemo;
 };
 
 type LabelmapToolOperationDataStack = LabelmapToolOperationData &
@@ -38,7 +54,7 @@ type LabelmapToolOperationDataAny =
   | LabelmapToolOperationDataVolume
   | LabelmapToolOperationDataStack;
 
-export {
+export type {
   LabelmapToolOperationData,
   LabelmapToolOperationDataAny,
   LabelmapToolOperationDataStack,

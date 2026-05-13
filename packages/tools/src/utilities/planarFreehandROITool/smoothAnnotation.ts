@@ -1,6 +1,6 @@
-import { Types } from '@cornerstonejs/core';
+import type { Types } from '@cornerstonejs/core';
 import { mat4, vec3 } from 'gl-matrix';
-import { PlanarFreehandROIAnnotation } from '../../types/ToolSpecificAnnotationTypes';
+import type { PlanarFreehandROIAnnotation } from '../../types/ToolSpecificAnnotationTypes';
 import interpolateSegmentPoints from './interpolation/interpolateSegmentPoints';
 
 export type SmoothOptions = {
@@ -95,7 +95,7 @@ export default function smoothAnnotation(
     interpolateSegmentPoints(
       canvasPoints,
       0,
-      canvasPoints.length,
+      canvasPoints.length - 1,
       options?.knotsRatioPercentage || 30
     )
   );
@@ -112,7 +112,7 @@ export default function smoothAnnotation(
       interpolateSegmentPoints(
         interpolatedCanvasPoints,
         0,
-        canvasPoints.length,
+        interpolatedCanvasPoints.length - 1,
         options?.knotsRatioPercentage || 30
       )
     );

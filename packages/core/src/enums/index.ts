@@ -4,9 +4,9 @@ import ViewportType from './ViewportType';
 import InterpolationType from './InterpolationType';
 import BlendModes from './BlendModes';
 import OrientationAxis from './OrientationAxis';
-import SharedArrayBufferModes from './SharedArrayBufferModes';
 import GeometryType from './GeometryType';
 import ContourType from './ContourType';
+import MeshType from './MeshType';
 import VOILUTFunctionType from './VOILUTFunctionType';
 import DynamicOperatorType from './DynamicOperatorType';
 import CalibrationTypes from './CalibrationTypes';
@@ -14,6 +14,9 @@ import ViewportStatus from './ViewportStatus';
 import ImageQualityStatus from './ImageQualityStatus';
 import * as VideoEnums from './VideoEnums';
 import MetadataModules from './MetadataModules';
+import { GenerateImageType } from './GenerateImageType';
+import VoxelManagerEnum from './VoxelManagerEnum';
+import RenderingEngineModeEnum from './RenderingEngineModeEnum';
 
 export {
   Events,
@@ -23,13 +26,16 @@ export {
   RequestType,
   ViewportType,
   OrientationAxis,
-  SharedArrayBufferModes,
   GeometryType,
   ContourType,
+  MeshType,
   VOILUTFunctionType,
   DynamicOperatorType,
   ViewportStatus,
   VideoEnums,
   MetadataModules,
   ImageQualityStatus,
+  VoxelManagerEnum,
+  GenerateImageType,
+  RenderingEngineModeEnum,
 };

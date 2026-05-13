@@ -1,5 +1,5 @@
-import { Enums } from '@cornerstonejs/core';
-import external from '../../../externalModules';
+import { Enums, metaData } from '@cornerstonejs/core';
+import * as dicomParser from 'dicom-parser';
 import getNumberValues from './getNumberValues';
 import parseImageId from '../parseImageId';
 import dataSetCacheManager from '../dataSetCacheManager';
@@ -17,18 +17,13 @@ import {
   extractSliceThicknessFromDataset,
 } from './extractPositioningFromDataset';
 import isNMReconstructable from '../../isNMReconstructable';
-import {
-  getInstanceModule,
-  instanceModuleNames,
-} from '../../getInstanceModule';
+import { instanceModuleNames } from '../../getInstanceModule';
 import { getUSEnhancedRegions } from './USHelpers';
 import getVOILUTFunction from './getVOILUTFunction';
 import getVOI from './getVOI';
 
 function metaDataProvider(type, imageId) {
-  const MetadataModules =
-    external.cornerstone.Enums?.MetadataModules || Enums.MetadataModules;
-  const { dicomParser } = external;
+  const { MetadataModules } = Enums;
 
   // Several providers use array queries
   if (Array.isArray(imageId)) {
@@ -66,6 +61,16 @@ function metaDataProvider(type, imageId) {
     return;
   }
 
+  return metadataForDataset(type, imageId, dataSet);
+}
+
+export function metadataForDataset(
+  type,
+  imageId,
+  dataSet: dicomParser.DataSet
+) {
+  const { MetadataModules } = Enums;
+
   if (type === MetadataModules.GENERAL_STUDY) {
     return {
       studyDescription: dataSet.string('x00081030'),
@@ -79,6 +84,7 @@ function metaDataProvider(type, imageId) {
     return {
       modality: dataSet.string('x00080060'),
       seriesInstanceUID: dataSet.string('x0020000e'),
+      seriesDescription: dataSet.string('x0008103e'),
       seriesNumber: dataSet.intString('x00200011'),
       studyInstanceUID: dataSet.string('x0020000d'),
       seriesDate: dicomParser.parseDA(dataSet.string('x00080021')),
@@ -142,9 +148,14 @@ function metaDataProvider(type, imageId) {
 
     let rowPixelSpacing = null;
 
+    let usingDefaultValues = false;
     if (pixelSpacing) {
       rowPixelSpacing = pixelSpacing[0];
       columnPixelSpacing = pixelSpacing[1];
+    } else {
+      usingDefaultValues = true;
+      rowPixelSpacing = 1;
+      columnPixelSpacing = 1;
     }
 
     let rowCosines = null;
@@ -183,6 +194,7 @@ function metaDataProvider(type, imageId) {
       pixelSpacing,
       rowPixelSpacing,
       columnPixelSpacing,
+      usingDefaultValues,
     };
   }
 
@@ -310,7 +322,7 @@ function metaDataProvider(type, imageId) {
 
   // Note: this is not a DICOM module, but rather an aggregation on all others
   if (type === 'instance') {
-    return getInstanceModule(imageId, metaDataProvider, instanceModuleNames);
+    return metaData.getNormalized(imageId, instanceModuleNames);
   }
 }
 

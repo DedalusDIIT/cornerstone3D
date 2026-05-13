@@ -1,21 +1,24 @@
 import {
   utilities,
   getEnabledElement,
-  StackViewport,
   cache,
-  VideoViewport,
   BaseVolumeViewport,
 } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
 
 import BaseTool from './BaseTool';
 import { getAnnotationManager } from '../../stateManagement/annotation/annotationState';
-import { Annotation, Annotations, SVGDrawingHelper } from '../../types';
+import type {
+  Annotation,
+  Annotations,
+  EventTypes,
+  SVGDrawingHelper,
+} from '../../types';
 import triggerAnnotationRender from '../../utilities/triggerAnnotationRender';
 import filterAnnotationsForDisplay from '../../utilities/planar/filterAnnotationsForDisplay';
 import { getStyleProperty } from '../../stateManagement/annotation/config/helpers';
 import { getState } from '../../stateManagement/annotation/config';
-import { StyleSpecifier } from '../../types/AnnotationStyle';
+import type { StyleSpecifier } from '../../types/AnnotationStyle';
 
 /**
  * Abstract class for tools which create and display annotations on the
@@ -60,9 +63,11 @@ abstract class AnnotationDisplayTool extends BaseTool {
   filterInteractableAnnotationsForElement(
     element: HTMLDivElement,
     annotations: Annotations
-  ): Annotations | undefined {
-    if (!annotations || !annotations.length) {
-      return;
+  ): Annotations {
+    if (!annotations?.length) {
+      // Some tools don't check the return value, so return an empty array
+      // Which is in fact the correct value here.
+      return [];
     }
 
     const enabledElement = getEnabledElement(element);
@@ -123,11 +128,102 @@ abstract class AnnotationDisplayTool extends BaseTool {
     });
   };
 
+  /**
+   * Creates a base annotation object, adding in any annotation base data provided
+   *
+   * NOTE: This is the static version of this method and doesn't know about
+   * adding any of the dynamic data.  Use this version to create a general
+   * annotation, and then extend it appropriately with the tool specific data.
+   * See this.createAnnotation for details.
+   */
+  public static createAnnotation(...annotationBaseData): Annotation {
+    let annotation: Annotation = {
+      annotationUID: null as string,
+      highlighted: true,
+      invalidated: true,
+      isLocked: false,
+      isVisible: true,
+      metadata: {
+        toolName: this.toolName,
+      },
+      data: {
+        handles: {
+          points: new Array<Types.Point3>(),
+          activeHandleIndex: null,
+          textBox: {
+            hasMoved: false,
+            worldPosition: <Types.Point3>[0, 0, 0],
+            worldBoundingBox: {
+              topLeft: <Types.Point3>[0, 0, 0],
+              topRight: <Types.Point3>[0, 0, 0],
+              bottomLeft: <Types.Point3>[0, 0, 0],
+              bottomRight: <Types.Point3>[0, 0, 0],
+            },
+          },
+        },
+        cachedStats: {},
+        label: '',
+      },
+    } as unknown as Annotation;
+    for (const baseData of annotationBaseData) {
+      annotation = utilities.deepMerge(annotation, baseData);
+    }
+    return annotation;
+  }
+
+  /**
+   * Creates an annotation containing the basic data set.
+   */
+  protected createAnnotation(
+    evt: EventTypes.InteractionEventType,
+    points?: Types.Point3[],
+    ...annotationBaseData
+  ): Annotation {
+    const eventDetail = evt.detail;
+    const { currentPoints, element } = eventDetail;
+    const { world: worldPos } = currentPoints;
+
+    const enabledElement = getEnabledElement(element);
+    const { viewport } = enabledElement;
+
+    const camera = viewport.getCamera();
+    const { viewPlaneNormal, viewUp, position: cameraPosition } = camera;
+
+    const referencedImageId = this.getReferencedImageId(
+      viewport,
+      worldPos,
+      viewPlaneNormal,
+      viewUp
+    );
+
+    const viewReference = viewport.getViewReference({ points: [worldPos] });
+
+    const annotation = AnnotationDisplayTool.createAnnotation(
+      {
+        metadata: {
+          toolName: this.getToolName(),
+          ...viewReference,
+          referencedImageId,
+          viewUp,
+          cameraPosition,
+        },
+        data: {
+          handles: {
+            points: points || [],
+          },
+        },
+      },
+      ...annotationBaseData
+    );
+
+    return annotation;
+  }
+
   protected getReferencedImageId(
     viewport: Types.IViewport,
     worldPos: Types.Point3,
     viewPlaneNormal: Types.Point3,
-    viewUp: Types.Point3
+    viewUp?: Types.Point3
   ): string {
     const targetId = this.getTargetId(viewport);
 

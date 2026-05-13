@@ -1,4 +1,4 @@
-import { MetadataGeneralSeriesModule } from '../types';
+import type { Types } from '@cornerstonejs/core';
 
 /**
  * It returns the scaling parameters for the image with the given imageId. This can be
@@ -7,11 +7,11 @@ import { MetadataGeneralSeriesModule } from '../types';
  * @param imageId - The imageId of the image
  * @returns ScalingParameters
  */
-export default function getScalingParameters(metaData: any, imageId: string) {
+export default function getScalingParameters(metaData, imageId: string) {
   const modalityLutModule = metaData.get('modalityLutModule', imageId) || {};
 
-  const generalSeriesModule: MetadataGeneralSeriesModule =
-    metaData.get('generalSeriesModule', imageId) || {};
+  const generalSeriesModule = (metaData.get('generalSeriesModule', imageId) ||
+    {}) as Types.GeneralSeriesModuleMetadata;
 
   const { modality } = generalSeriesModule;
 
@@ -21,10 +21,16 @@ export default function getScalingParameters(metaData: any, imageId: string) {
     modality,
   };
 
-  const suvFactor = metaData.get('scalingModule', imageId) || {};
+  const scalingModules = metaData.get('scalingModule', imageId) || {};
 
   return {
     ...scalingParameters,
-    ...(modality === 'PT' && { suvbw: suvFactor.suvbw }),
+    ...(modality === 'PT' && { suvbw: scalingModules.suvbw }),
+    ...(modality === 'RTDOSE' && {
+      doseGridScaling: scalingModules.DoseGridScaling,
+      doseSummation: scalingModules.DoseSummation,
+      doseType: scalingModules.DoseType,
+      doseUnit: scalingModules.DoseUnit,
+    }),
   };
 }

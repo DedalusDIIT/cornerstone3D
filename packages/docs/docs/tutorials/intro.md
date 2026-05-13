@@ -1,5 +1,7 @@
 ---
 id: intro
+title: Introduction
+summary: Overview of tutorial components in Cornerstone3D, including instructions for running tutorials locally and explanation of image loaders and metadata providers
 ---
 
 # Introduction
@@ -20,11 +22,18 @@ How to run it?
 
 ```bash
 # from the root of the library
-yarn install
+yarn install --frozen-lockfile
 
 # run the tutorial example
 yarn run example tutorial
 ```
+
+:::danger
+In general run `yarn install` with the `--frozen-lockfile` flag to help avoid
+supply chain attacks by enforcing reproducible dependencies. That is, if the
+`yarn.lock` file is clean and does NOT reference compromised packages, then
+no compromised packages should land on your machine by using this flag.
+:::
 
 Then open a new tab in your browser and navigate to `http://localhost:3000/`.
 
@@ -39,7 +48,7 @@ For curious learners, here are some components that are used (behind the scene) 
 `Cornerstone3D` does not deal with loading images. As we will learn later, `Cornerstone3D` also is capable of rendering `Volumes` in any orientation too.
 Therefore, proper image and volume loaders should be registered with `Cornerstone3D` so that it can work as intended. Examples of such loaders are
 
-- imageLoader: `cornerstoneWADOImageLoader`
+- imageLoader: `cornerstoneDICOMImageLoader`
 - volumeLoader: `cornerstoneStreamingImageVolumeLoader`
 
 ### Metadata Providers

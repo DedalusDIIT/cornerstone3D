@@ -1,6 +1,6 @@
 import type { InitializedOperationData } from '../BrushStrategy';
-import pointInShapeCallback from '../../../../utilities/pointInShapeCallback';
 import StrategyCallbacks from '../../../../enums/StrategyCallbacks';
+import type { Types } from '@cornerstonejs/core';
 
 /**
  * This function determines whether to fill or erase based on what the user
@@ -19,68 +19,74 @@ import StrategyCallbacks from '../../../../enums/StrategyCallbacks';
  *
  */
 export default {
-  [StrategyCallbacks.Initialize]: (operationData: InitializedOperationData) => {
-    const { strategySpecificConfiguration } = operationData;
-    if (!strategySpecificConfiguration) {
-      return;
-    }
-    const { centerSegmentIndex } = strategySpecificConfiguration;
-    if (centerSegmentIndex) {
-      operationData.segmentIndex = centerSegmentIndex.segmentIndex;
-    }
-  },
+  // [StrategyCallbacks.Initialize]: (operationData: InitializedOperationData) => {
+  //   const { centerSegmentIndex } = operationData.configuration || {};
 
+  //   if (!centerSegmentIndex) {
+  //     return;
+  //   }
+
+  //   operationData.segmentIndex = centerSegmentIndex.segmentIndex;
+  // },
   [StrategyCallbacks.OnInteractionStart]: (
     operationData: InitializedOperationData
   ) => {
     const {
       segmentIndex,
       previewSegmentIndex,
-      segmentationVoxelManager: segmentationVoxelManager,
+      segmentationVoxelManager,
       centerIJK,
-      strategySpecificConfiguration,
-      imageVoxelManager: imageVoxelManager,
+      viewPlaneNormal,
       segmentationImageData,
-      preview,
+      configuration,
     } = operationData;
-    if (!strategySpecificConfiguration?.useCenterSegmentIndex) {
+
+    // Reset center segment index info when the feature is disabled
+    if (!configuration?.useCenterSegmentIndex) {
+      operationData.centerSegmentIndexInfo.segmentIndex = null;
+      operationData.centerSegmentIndexInfo.hasSegmentIndex = false;
+      operationData.centerSegmentIndexInfo.hasPreviewIndex = false;
+
       return;
     }
+
     // Get rid of the previous data
-    delete strategySpecificConfiguration.centerSegmentIndex;
 
     let hasSegmentIndex = false;
     let hasPreviewIndex = false;
+
+    const nestedBounds = <Types.BoundsIJK>[
+      ...segmentationVoxelManager.getBoundsIJK(),
+    ];
+
+    if (Math.abs(viewPlaneNormal[0]) > 0.8) {
+      nestedBounds[0] = [centerIJK[0], centerIJK[0]];
+    } else if (Math.abs(viewPlaneNormal[1]) > 0.8) {
+      nestedBounds[1] = [centerIJK[1], centerIJK[1]];
+    } else if (Math.abs(viewPlaneNormal[2]) > 0.8) {
+      nestedBounds[2] = [centerIJK[2], centerIJK[2]];
+    }
+
     const callback = ({ value }) => {
       hasSegmentIndex ||= value === segmentIndex;
       hasPreviewIndex ||= value === previewSegmentIndex;
     };
 
-    pointInShapeCallback(
-      segmentationImageData as unknown,
-      imageVoxelManager.isInObject,
-      callback,
-      segmentationVoxelManager.boundsIJK
-    );
+    segmentationVoxelManager.forEach(callback, {
+      imageData: segmentationImageData,
+      isInObject: operationData.isInObject,
+      boundsIJK: nestedBounds,
+    });
 
     if (!hasSegmentIndex && !hasPreviewIndex) {
+      operationData.centerSegmentIndexInfo.segmentIndex = null;
       return;
     }
 
-    let existingValue = segmentationVoxelManager.getAtIJKPoint(centerIJK);
-    if (existingValue === previewSegmentIndex) {
-      if (preview) {
-        existingValue = preview.segmentIndex;
-      } else {
-        return;
-      }
-    } else if (hasPreviewIndex) {
-      // Clear the preview area
-      existingValue = null;
-    }
-    operationData.segmentIndex = existingValue;
-    strategySpecificConfiguration.centerSegmentIndex = {
-      segmentIndex: existingValue,
-    };
+    const existingValue = segmentationVoxelManager.getAtIJKPoint(centerIJK);
+
+    operationData.centerSegmentIndexInfo.segmentIndex = existingValue;
+    operationData.centerSegmentIndexInfo.hasSegmentIndex = hasSegmentIndex;
+    operationData.centerSegmentIndexInfo.hasPreviewIndex = hasPreviewIndex;
   },
 };

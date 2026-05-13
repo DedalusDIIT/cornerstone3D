@@ -1,6 +1,7 @@
 ---
 id: volumeProgressive
 title: Volume Progressive Loading
+summary: Techniques for optimizing volume loading through image interleaving, allowing fast initial rendering with progressive quality improvement
 ---
 
 ## Volume Viewport Interleaved Decode
@@ -73,7 +74,7 @@ The configuration looks like:
       // Use teh default render type for these, which should retrieve full resolution
       retrieveType: 'default',
       // Use the Interaction queue
-      requestType: RequestType.Interaction,
+      requestType: RequestType.INTERACTION,
       // Priority 10, do first
       priority: 10,
       // Fill nearby frames from this data

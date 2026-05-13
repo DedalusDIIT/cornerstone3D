@@ -1,8 +1,9 @@
-import { ByteArray } from 'dicom-parser';
-import { ImageFrame, WebWorkerDecodeConfig } from '../../types';
+import type { ByteArray } from 'dicom-parser';
+import type { Types } from '@cornerstonejs/core';
+import type { WebWorkerDecodeConfig } from '../../types';
 
 const local = {
-  jpeg: undefined,
+  DecoderClass: undefined,
   decodeConfig: {} as WebWorkerDecodeConfig,
 };
 
@@ -11,44 +12,40 @@ export function initialize(
 ): Promise<void> {
   local.decodeConfig = decodeConfig;
 
-  if (local.jpeg) {
+  if (local.DecoderClass) {
     return Promise.resolve();
   }
 
   return new Promise((resolve, reject) => {
-    import('../../../codecs/jpegLossless').then((jpeg) => {
-      local.jpeg = jpeg;
+    import('jpeg-lossless-decoder-js').then(({ Decoder }) => {
+      local.DecoderClass = Decoder;
       resolve();
     }, reject);
   });
 }
 
 async function decodeJPEGLossless(
-  imageFrame: ImageFrame,
+  imageFrame: Types.IImageFrame,
   pixelData: ByteArray
-): Promise<ImageFrame> {
+): Promise<Types.IImageFrame> {
   await initialize();
 
   // check to make sure codec is loaded
-  if (
-    typeof local.jpeg === 'undefined' ||
-    typeof local.jpeg.lossless === 'undefined' ||
-    typeof local.jpeg.lossless.Decoder === 'undefined'
-  ) {
+  if (typeof local.DecoderClass === 'undefined') {
     throw new Error('No JPEG Lossless decoder loaded');
   }
 
+  // Create a new decoder instance for each decode operation to ensure thread safety
+  const decoder = new local.DecoderClass();
+
   const byteOutput = imageFrame.bitsAllocated <= 8 ? 1 : 2;
-  // console.time('jpeglossless');
   const buffer = pixelData.buffer;
-  const decoder = new local.jpeg.lossless.Decoder();
   const decompressedData = decoder.decode(
     buffer,
     pixelData.byteOffset,
     pixelData.length,
     byteOutput
   );
-  // console.timeEnd('jpeglossless');
 
   if (imageFrame.pixelRepresentation === 0) {
     if (imageFrame.bitsAllocated === 16) {

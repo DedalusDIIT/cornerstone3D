@@ -1,6 +1,7 @@
 ---
 id: advance-retrieve-config
 title: Advance Options
+summary: Advanced configuration options for progressive loading, including position-based retrieval, decimation strategies, priority handling, and frame replication techniques
 ---
 
 There are more advanced options both for `retrieve stages` and also for
@@ -85,7 +86,7 @@ stages: [
     id: 'initialImages',
     positions: [0.5, 0, -1],
     retrieveType: 'initial',
-    requestType: RequestType.Interaction,
+    requestType: RequestType.INTERACTION,
     priority: -1,
   },
   {
@@ -94,7 +95,7 @@ stages: [
     offset: 0,
     retrieveType: 'fast',
     priority: 2,
-    requestType: RequestType.Prefetch,
+    requestType: RequestType.PREFETCH,
   },
   {
     id: 'secondPass',
@@ -102,7 +103,7 @@ stages: [
     offset: 1,
     retrieveType: 'fast',
     priority: 3,
-    requestType: RequestType.Prefetch,
+    requestType: RequestType.PREFETCH,
   },
 ];
 ```
@@ -112,7 +113,7 @@ Set the maximum number of requests to run to a lower value to ensure that
 your required requests are performed first. For example:
 
 ```javascript
-imageLoadPoolManager.setMaxSimultaneousRequests(RequestType.Interaction, 6);
+imageLoadPoolManager.setMaxSimultaneousRequests(RequestType.INTERACTION, 6);
 ```
 
 :::
@@ -131,7 +132,7 @@ stages: [
     offset: 0,
     retrieveType: 'fast',
     priority: 2,
-    requestType: RequestType.Prefetch,
+    requestType: RequestType.PREFETCH,
     nearbyFrames: [
       {
         offset: +1,
@@ -145,7 +146,7 @@ stages: [
     offset: 1,
     retrieveType: 'fast',
     priority: 3,
-    requestType: RequestType.Prefetch,
+    requestType: RequestType.PREFETCH,
   },
 ];
 ```

@@ -1,5 +1,7 @@
 ---
 id: playwright-tests
+title: Writing Playwright Tests
+summary: Comprehensive guide for creating end-to-end tests using Playwright, including working with example pages, capturing screenshots for comparisons, and simulating user interactions
 ---
 
 # Writing PlayWright Tests
@@ -166,13 +168,13 @@ yarn playwright show-report tests/playwright-report
 
 ## Serving the examples manually for development
 
-By default, when you run the tests, it will call the `yarn build-and-serve-static-examples` command to serve the examples first, then run the tests, if you would like to serve the examples manually, you can use the same command. The examples will be available at `http://localhost:3000`. This could speed up your development process since playwright will skip the build and serve step and use the existing server on port 3000.
+By default, when you run the tests, it will call the `bun build-and-serve-static-examples` command to serve the examples first, then run the tests, if you would like to serve the examples manually, you can use the same command. The examples will be available at `http://localhost:3000`. This could speed up your development process since playwright will skip the build and serve step and use the existing server on port 3000.
 
 ## Playwright VSCode Extension and Recording Tests
 
 If you are using VSCode, you can use the Playwright extension to help you write your tests. The extension provides a test runner and many great features such as picking a locator using your mouse, recording a new test, and more. You can install the extension by searching for `Playwright` in the extensions tab in VSCode or by visiting the [Playwright extension page](https://marketplace.visualstudio.com/items?itemName=ms-playwright.playwright).
 
 <div style={{padding:"56.25% 0 0 0", position:"relative"}}>
-    <iframe src="https://player.vimeo.com/video/947471524?h=6720407fef&amp;badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479"
+    <iframe src="https://player.vimeo.com/video/949208495?badge=0&amp;autopause=0&amp;player_id=0&amp;app_id=58479"
     frameBorder="0" allow="cross-origin-isolated" allowFullScreen style= {{ position:"absolute",top:0,left:0,width:"100%",height:"100%"}} title="Playwright Extension"></iframe>
 </div>

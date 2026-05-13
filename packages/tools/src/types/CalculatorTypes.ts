@@ -1,13 +1,17 @@
 import type { Types } from '@cornerstonejs/core';
+import type { MeasurementType } from '../enums/MeasurementType';
 
-type Statistics = {
+export type Statistics = {
   name: string;
   label?: string;
   value: number | number[];
   unit: null | string;
+  pointIJK?: Types.Point3;
+  pointLPS?: Types.Point3;
+  type?: MeasurementType;
 };
 
-type NamedStatistics = {
+export type NamedStatistics = {
   mean: Statistics & { name: 'mean' };
   max: Statistics & { name: 'max' };
   min: Statistics & { name: 'min' };
@@ -15,9 +19,19 @@ type NamedStatistics = {
   count: Statistics & { name: 'count' };
   area?: Statistics & { name: 'area' };
   volume?: Statistics & { name: 'volume' };
-  circumference?: Statistics & { name: 'circumference' };
-  pointsInShape?: Types.PointsManager<Types.Point3>;
+  pointsInShape?: Types.IPointsManager<Types.Point3>;
+  median?: Statistics & { name: 'median' };
+  skewness?: Statistics & { name: 'skewness' };
+  kurtosis?: Statistics & { name: 'kurtosis' };
+  voxelCount?: Statistics & { name: 'count' };
+  lesionGlycolysis?: Statistics & { name: 'lesionGlycolysis' };
+  maxLPS?: Statistics & { name: 'maxLPS' };
+  minLPS?: Statistics & { name: 'minLPS' };
+  center?: Statistics & { name: 'center' };
+  /**
+   * A set of stats callback arguments containing maximum values.
+   * This can be used to test peak intensities in the areas.
+   */
+  maxIJKs?: Array<{ value: number; pointIJK: Types.Point3 }>;
   array: Statistics[];
 };
-
-export type { Statistics, NamedStatistics };

@@ -1,4 +1,4 @@
-import CalibrationTypes from '../enums/CalibrationTypes';
+import type CalibrationTypes from '../enums/CalibrationTypes';
 
 /**
  * IImageCalibration is an object that stores information about the type
@@ -34,8 +34,8 @@ export interface IImageCalibration {
   type: CalibrationTypes;
   /** A tooltip which can be used to explain the calibration information */
   tooltip?: string;
-  /** The DICOM defined ultrasound regions.  Used for non-distance spacing units. */
+  /** The DICOM defined ultrasound regions.  Used for non-distance spacing units (US and ECG). */
   sequenceOfUltrasoundRegions?: Record<string, unknown>[];
 }
 
-export default IImageCalibration;
+export type { IImageCalibration as default };

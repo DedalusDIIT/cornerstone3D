@@ -1,4 +1,4 @@
-import { VOILUTFunctionType } from '../enums';
+import type { VOILUTFunctionType } from '../enums';
 
 export interface ImagePixelModule {
   bitsAllocated: number;
@@ -6,7 +6,7 @@ export interface ImagePixelModule {
   samplesPerPixel: number;
   highBit: number;
   photometricInterpretation: string;
-  pixelRepresentation: string;
+  pixelRepresentation: number;
   windowWidth: number | number[];
   windowCenter: number | number[];
   voiLUTFunction: VOILUTFunctionType;

@@ -1,13 +1,5 @@
-import Segmentation_3X from "./Segmentation_3X";
-import Segmentation_4X from "./Segmentation_4X";
-
-const Segmentation = {
-    generateSegmentation,
-    generateToolState,
-    fillSegmentation
-};
-
-export default Segmentation;
+import Segmentation_3X from './Segmentation_3X';
+import Segmentation_4X from './Segmentation_4X';
 
 /**
  * generateSegmentation - Generates a DICOM Segmentation object given cornerstoneTools data.
@@ -19,40 +11,40 @@ export default Segmentation;
  * @returns {Object}
  */
 function generateSegmentation(
-    images,
-    labelmaps3DorBrushData,
-    options = { includeSliceSpacing: true },
-    cornerstoneToolsVersion = 4
+  images,
+  labelmaps3DorBrushData,
+  options = { includeSliceSpacing: true },
+  cornerstoneToolsVersion = 4
 ) {
-    if (cornerstoneToolsVersion === 4) {
-        return Segmentation_4X.generateSegmentation(
-            images,
-            labelmaps3DorBrushData,
-            options
-        );
-    }
-
-    if (cornerstoneToolsVersion === 3) {
-        return Segmentation_3X.generateSegmentation(
-            images,
-            labelmaps3DorBrushData,
-            options
-        );
-    }
-
-    console.warn(
-        `No generateSegmentation adapater for cornerstone version ${cornerstoneToolsVersion}, exiting.`
+  if (cornerstoneToolsVersion === 4) {
+    return Segmentation_4X.generateSegmentation(
+      images,
+      labelmaps3DorBrushData,
+      options
     );
+  }
+
+  if (cornerstoneToolsVersion === 3) {
+    return Segmentation_3X.generateSegmentation(
+      images,
+      labelmaps3DorBrushData,
+      options
+    );
+  }
+
+  console.warn(
+    `No generateSegmentation adapter for cornerstone version ${cornerstoneToolsVersion}, exiting.`
+  );
 }
 
 /**
- * generateToolState - Given a set of cornrstoneTools imageIds and a Segmentation buffer,
+ * generateToolState - Given a set of cornerstoneTools imageIds and a Segmentation buffer,
  * derive cornerstoneTools toolState and brush metadata.
  *
  * @param  {string[]} imageIds    An array of the imageIds.
  * @param  {ArrayBuffer} arrayBuffer The SEG arrayBuffer.
  * @param {*} metadataProvider
- * @param  {bool} skipOverlapping - skip checks for overlapping segs, default value false.
+ * @param  {boolean} skipOverlapping - skip checks for overlapping segs, default value false.
  * @param  {number} tolerance - default value 1.e-3.
  * @param  {number} cornerstoneToolsVersion - default value 4.
  *
@@ -60,34 +52,34 @@ function generateSegmentation(
  *                    segment metadata can be derived.
  */
 function generateToolState(
-    imageIds,
-    arrayBuffer,
-    metadataProvider,
-    skipOverlapping = false,
-    tolerance = 1e-3,
-    cornerstoneToolsVersion = 4
+  imageIds,
+  arrayBuffer,
+  metadataProvider,
+  skipOverlapping = false,
+  tolerance = 1e-3,
+  cornerstoneToolsVersion = 4
 ) {
-    if (cornerstoneToolsVersion === 4) {
-        return Segmentation_4X.generateToolState(
-            imageIds,
-            arrayBuffer,
-            metadataProvider,
-            skipOverlapping,
-            tolerance
-        );
-    }
-
-    if (cornerstoneToolsVersion === 3) {
-        return Segmentation_3X.generateToolState(
-            imageIds,
-            arrayBuffer,
-            metadataProvider
-        );
-    }
-
-    console.warn(
-        `No generateToolState adapater for cornerstone version ${cornerstoneToolsVersion}, exiting.`
+  if (cornerstoneToolsVersion === 4) {
+    return Segmentation_4X.generateToolState(
+      imageIds,
+      arrayBuffer,
+      metadataProvider,
+      skipOverlapping,
+      tolerance
     );
+  }
+
+  if (cornerstoneToolsVersion === 3) {
+    return Segmentation_3X.generateToolState(
+      imageIds,
+      arrayBuffer,
+      metadataProvider
+    );
+  }
+
+  console.warn(
+    `No generateToolState adapter for cornerstone version ${cornerstoneToolsVersion}, exiting.`
+  );
 }
 
 /**
@@ -99,20 +91,22 @@ function generateToolState(
  * @returns {Blob}           description
  */
 function fillSegmentation(
-    segmentation,
-    inputLabelmaps3D,
-    options = { includeSliceSpacing: true },
-    cornerstoneToolsVersion = 4
+  segmentation,
+  inputLabelmaps3D,
+  options = { includeSliceSpacing: true },
+  cornerstoneToolsVersion = 4
 ) {
-    if (cornerstoneToolsVersion === 4) {
-        return Segmentation_4X.fillSegmentation(
-            segmentation,
-            inputLabelmaps3D,
-            options
-        );
-    }
-
-    console.warn(
-        `No generateSegmentation adapater for cornerstone version ${cornerstoneToolsVersion}, exiting.`
+  if (cornerstoneToolsVersion === 4) {
+    return Segmentation_4X.fillSegmentation(
+      segmentation,
+      inputLabelmaps3D,
+      options
     );
+  }
+
+  console.warn(
+    `No generateSegmentation adapter for cornerstone version ${cornerstoneToolsVersion}, exiting.`
+  );
 }
+
+export { generateSegmentation, generateToolState, fillSegmentation };

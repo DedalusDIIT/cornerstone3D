@@ -1,10 +1,10 @@
+import type { Types } from '@cornerstonejs/core';
 import {
   CONSTANTS,
   Enums,
   getRenderingEngine,
   RenderingEngine,
   setVolumesForViewports,
-  Types,
   volumeLoader,
 } from '@cornerstonejs/core';
 import * as cornerstoneTools from '@cornerstonejs/tools';
@@ -60,7 +60,8 @@ viewportGrid.appendChild(element1);
 content.appendChild(viewportGrid);
 
 const instructions = document.createElement('p');
-instructions.innerText = 'Click the image to rotate it.';
+instructions.innerText =
+  'Click the image to rotate it.  Select the preset and sampling distance from the drop downs';
 
 content.append(instructions);
 
@@ -71,30 +72,44 @@ addButtonToToolbar({
     const renderingEngine = getRenderingEngine(renderingEngineId);
 
     // Get the volume viewport
-    const viewport = <Types.IVolumeViewport>(
-      renderingEngine.getViewport(viewportId)
-    );
+    const viewport = renderingEngine.getViewport(
+      viewportId
+    ) as Types.IVolumeViewport;
 
     // Apply the rotation to the camera of the viewport
-    viewport.setProperties({ rotation: Math.random() * 360 });
+    viewport.setViewPresentation({ rotation: Math.random() * 360 });
     viewport.render();
   },
 });
-
 addDropdownToToolbar({
   options: {
     values: CONSTANTS.VIEWPORT_PRESETS.map((preset) => preset.name),
     defaultValue: 'CT-Bone',
   },
   onSelectedValueChange: (presetName) => {
-    viewport.setProperties({ preset: presetName });
+    const renderingEngine = getRenderingEngine(renderingEngineId);
+    const viewport = renderingEngine.getViewport(viewportId);
+    viewport.setProperties({ preset: presetName as string });
+    viewport.render();
+  },
+});
+
+addDropdownToToolbar({
+  options: {
+    values: Array.from({ length: 16 }, (_, i) => i + 1), // [1, 2, ..., 16]
+    defaultValue: 1,
+  },
+  onSelectedValueChange: (sampleDistanceMultiplier) => {
+    const renderingEngine = getRenderingEngine(renderingEngineId);
+    const viewport = renderingEngine.getViewport(viewportId);
+    viewport.setProperties({
+      sampleDistanceMultiplier: Number(sampleDistanceMultiplier),
+    });
     viewport.render();
   },
 });
 
 // ============================= //
-
-let viewport;
 
 /**
  * Runs the demo
@@ -120,7 +135,7 @@ async function run() {
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.871108593056125491804754960339',
     SeriesInstanceUID:
       '1.3.6.1.4.1.14519.5.2.1.7009.2403.367700692008930469189923116409',
-    wadoRsRoot: 'https://domvja9iplmyu.cloudfront.net/dicomweb',
+    wadoRsRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
   });
 
   // Instantiate a rendering engine
@@ -154,14 +169,16 @@ async function run() {
   volume.load();
   viewport = renderingEngine.getViewport(viewportId);
 
-  setVolumesForViewports(renderingEngine, [{ volumeId }], [viewportId]).then(
-    () => {
-      viewport.setProperties({
-        preset: 'CT-Bone',
-      });
-      viewport.render();
-    }
-  );
+  await setVolumesForViewports(
+    renderingEngine,
+    [{ volumeId }],
+    [viewportId]
+  ).then(() => {
+    viewport.setProperties({
+      preset: 'CT-Bone',
+    });
+    viewport.render();
+  });
 }
 
 run();

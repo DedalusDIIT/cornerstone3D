@@ -1,6 +1,7 @@
 ---
 id: viewports
 title: Viewports
+summary: Core rendering components that act as cameras for displaying medical images with different capabilities including stack viewing, MPR, 3D rendering, and video playback
 ---
 
 # Viewports
@@ -51,6 +52,10 @@ Both `StackViewport` and `VolumeViewport`, `VolumeViewport3D` are created via th
 - Suitable for rendering video data
 - Video can include MPEG 4 encoded vide streams. In theory, MPEG2 is also supported,
   but practically the browser doesn't support that.
+
+## Whole Slide Image Viewport
+
+- Suitable for rendering whole slide images
 
 ## Initial Display Area
 

@@ -1,34 +1,35 @@
-import external from '../../../externalModules';
+import {
+  Enums,
+  utilities,
+  metaData as coreMetaData,
+} from '@cornerstonejs/core';
 import getNumberValues from './getNumberValues';
 import getNumberValue from './getNumberValue';
 import getOverlayPlaneModule from './getOverlayPlaneModule';
-import metaDataManager from '../metaDataManager';
+import metaDataManager, {
+  retrieveMultiframeMetadataImageId,
+} from '../metaDataManager';
 import getValue from './getValue';
 import {
   getMultiframeInformation,
   getFrameInformation,
 } from '../combineFrameInstance';
-import multiframeMetadata from '../retrieveMultiframeMetadata';
 import {
   extractOrientationFromMetadata,
   extractPositionFromMetadata,
 } from './extractPositioningFromMetadata';
 import { getImageTypeSubItemFromMetadata } from './NMHelpers';
 import isNMReconstructable from '../../isNMReconstructable';
-import {
-  getInstanceModule,
-  instanceModuleNames,
-} from '../../getInstanceModule';
+import { instanceModuleNames } from '../../getInstanceModule';
 import { getUSEnhancedRegions } from './USHelpers';
+import { getECGModule } from './ECGHelpers';
 
 function metaDataProvider(type, imageId) {
-  const { MetadataModules } = external.cornerstone.Enums;
-  const { dicomParser } = external;
+  const { MetadataModules } = Enums;
 
   if (type === MetadataModules.MULTIFRAME) {
     // the get function removes the PerFrameFunctionalGroupsSequence
-    const { metadata, frame } =
-      multiframeMetadata.retrieveMultiframeMetadata(imageId);
+    const { metadata, frame } = retrieveMultiframeMetadataImageId(imageId);
 
     if (!metadata) {
       return;
@@ -69,10 +70,8 @@ function metaDataProvider(type, imageId) {
   if (type === MetadataModules.GENERAL_STUDY) {
     return {
       studyDescription: getValue<string>(metaData['00081030']),
-      studyDate: dicomParser.parseDA(getValue<string>(metaData['00080020'])),
-      studyTime: dicomParser.parseTM(
-        getValue<string>(metaData['00080030'], 0, '')
-      ),
+      studyDate: getValue<string>(metaData['00080020']),
+      studyTime: getValue<string>(metaData['00080030']),
       accessionNumber: getValue<string>(metaData['00080050']),
     };
   }
@@ -81,18 +80,13 @@ function metaDataProvider(type, imageId) {
     return {
       modality: getValue<string>(metaData['00080060']),
       seriesInstanceUID: getValue<string>(metaData['0020000E']),
+      seriesDescription: getValue<string>(metaData['0008103E']),
       seriesNumber: getNumberValue(metaData['00200011']),
       studyInstanceUID: getValue<string>(metaData['0020000D']),
-      seriesDate: dicomParser.parseDA(getValue<string>(metaData['00080021'])),
-      seriesTime: dicomParser.parseTM(
-        getValue<string>(metaData['00080031'], 0, '')
-      ),
-      acquisitionDate: dicomParser.parseDA(
-        getValue<string>(metaData['00080022'])
-      ),
-      acquisitionTime: dicomParser.parseTM(
-        getValue<string>(metaData['00080032'], 0, '')
-      ),
+      seriesDate: getValue<string>(metaData['00080021']),
+      seriesTime: getValue<string>(metaData['00080031']),
+      acquisitionDate: getValue<string>(metaData['00080022']),
+      acquisitionTime: getValue<string>(metaData['00080032']),
     };
   }
 
@@ -117,13 +111,13 @@ function metaDataProvider(type, imageId) {
     return {
       patientAge: getNumberValue(metaData['00101010']),
       patientSize: getNumberValue(metaData['00101020']),
-      patientSex: getValue<'M' | 'F'>(metaData['00100040']),
+      patientSex: getValue<'M' | 'F' | 'O'>(metaData['00100040']),
       patientWeight: getNumberValue(metaData['00101030']),
     };
   }
 
   if (type === MetadataModules.NM_MULTIFRAME_GEOMETRY) {
-    const modality = getValue(metaData['00080060']);
+    const modality = getValue(metaData['00080060']) as string;
     const imageSubType = getImageTypeSubItemFromMetadata(metaData, 2);
 
     return {
@@ -143,22 +137,24 @@ function metaDataProvider(type, imageId) {
 
   if (type === MetadataModules.IMAGE_PLANE) {
     //metaData = fixNMMetadata(metaData);
-    const imageOrientationPatient = extractOrientationFromMetadata(metaData);
-    const imagePositionPatient = extractPositionFromMetadata(metaData);
+    let imageOrientationPatient = extractOrientationFromMetadata(metaData);
+    let imagePositionPatient = extractPositionFromMetadata(metaData);
     const pixelSpacing = getNumberValues(metaData['00280030'], 2);
 
     let columnPixelSpacing = null;
-
     let rowPixelSpacing = null;
+    let rowCosines = null;
+    let columnCosines = null;
 
+    let usingDefaultValues = false;
     if (pixelSpacing) {
       rowPixelSpacing = pixelSpacing[0];
       columnPixelSpacing = pixelSpacing[1];
+    } else {
+      usingDefaultValues = true;
+      rowPixelSpacing = 1;
+      columnPixelSpacing = 1;
     }
-
-    let rowCosines = null;
-
-    let columnCosines = null;
 
     if (imageOrientationPatient) {
       rowCosines = [
@@ -177,6 +173,16 @@ function metaDataProvider(type, imageId) {
         // @ts-expect-error
         parseFloat(imageOrientationPatient[5]),
       ];
+    } else {
+      rowCosines = [1, 0, 0];
+      columnCosines = [0, 1, 0];
+      usingDefaultValues = true;
+      imageOrientationPatient = [...rowCosines, ...columnCosines];
+    }
+
+    if (!imagePositionPatient) {
+      imagePositionPatient = [0, 0, 0];
+      usingDefaultValues = true;
     }
 
     return {
@@ -192,11 +198,28 @@ function metaDataProvider(type, imageId) {
       pixelSpacing,
       rowPixelSpacing,
       columnPixelSpacing,
+      usingDefaultValues,
     };
   }
 
   if (type === MetadataModules.ULTRASOUND_ENHANCED_REGION) {
     return getUSEnhancedRegions(metaData);
+  }
+
+  if (type === MetadataModules.ECG) {
+    // Extract wadoRsRoot and studyUID from the imageId for BulkDataURI resolution
+    const imageUri = imageId.replace('wadors:', '');
+    const studiesIndex = imageUri.indexOf('/studies/');
+    let wadoRsRoot: string | undefined;
+    let studyUID: string | undefined;
+    if (studiesIndex !== -1) {
+      wadoRsRoot = imageUri.substring(0, studiesIndex);
+      const afterStudies = imageUri.substring(studiesIndex + 9);
+      const nextSlash = afterStudies.indexOf('/');
+      studyUID =
+        nextSlash !== -1 ? afterStudies.substring(0, nextSlash) : afterStudies;
+    }
+    return getECGModule(metaData, wadoRsRoot, studyUID);
   }
 
   if (type === MetadataModules.CALIBRATION) {
@@ -206,6 +229,46 @@ function metaDataProvider(type, imageId) {
       const enhancedRegion = getUSEnhancedRegions(metaData);
       return {
         sequenceOfUltrasoundRegions: enhancedRegion,
+      };
+    }
+
+    // ECG waveform: use sequenceOfUltrasoundRegions for time (seconds) and amplitude (mV)
+    const imageUri = imageId.replace('wadors:', '');
+    const studiesIndex = imageUri.indexOf('/studies/');
+    let wadoRsRoot;
+    let studyUID;
+    if (studiesIndex !== -1) {
+      wadoRsRoot = imageUri.substring(0, studiesIndex);
+      const afterStudies = imageUri.substring(studiesIndex + 9);
+      const nextSlash = afterStudies.indexOf('/');
+      studyUID =
+        nextSlash !== -1 ? afterStudies.substring(0, nextSlash) : afterStudies;
+    }
+    const ecgModule = getECGModule(metaData, wadoRsRoot, studyUID);
+    if (ecgModule) {
+      const { numberOfWaveformSamples, samplingFrequency } = ecgModule;
+      const physicalDeltaX = 1 / (samplingFrequency || 1);
+      // Typical ECG: raw Int16 in µV or similar; 0.001 mV per raw unit (1 µV/LSB)
+      const physicalDeltaY = 0.001;
+      // Match ECGViewport getImageData(): amplitude mapped to index [0, 65536), offset 32768
+      const ECG_AMPLITUDE_INDEX_SIZE = 65536;
+      const ECG_AMPLITUDE_OFFSET = 32768;
+      return {
+        sequenceOfUltrasoundRegions: [
+          {
+            regionLocationMinX0: 0,
+            regionLocationMaxX1: numberOfWaveformSamples,
+            regionLocationMinY0: 0,
+            regionLocationMaxY1: ECG_AMPLITUDE_INDEX_SIZE - 1,
+            referencePixelX0: 0,
+            referencePixelY0: ECG_AMPLITUDE_OFFSET,
+            physicalDeltaX,
+            physicalDeltaY,
+            physicalUnitsXDirection: 4, // seconds
+            physicalUnitsYDirection: -1, // mV (extension unit)
+            regionDataType: 1,
+          },
+        ],
       };
     }
   }
@@ -249,9 +312,10 @@ function metaDataProvider(type, imageId) {
 
   if (type === MetadataModules.VOI_LUT) {
     return {
-      // TODO VOT LUT Sequence
       windowCenter: getNumberValues(metaData['00281050'], 1),
       windowWidth: getNumberValues(metaData['00281051'], 1),
+      voiLUTFunction: getValue(metaData['00281056']),
+      // TODO VOT LUT Sequence
     };
   }
 
@@ -280,8 +344,10 @@ function metaDataProvider(type, imageId) {
 
     return {
       radiopharmaceuticalInfo: {
-        radiopharmaceuticalStartTime: dicomParser.parseTM(
-          getValue(radiopharmaceuticalInfo['00181072'], 0, '')
+        radiopharmaceuticalStartTime: getValue(
+          radiopharmaceuticalInfo['00181072'],
+          0,
+          ''
         ),
         radiopharmaceuticalStartDateTime: getValue(
           radiopharmaceuticalInfo['00181078'],
@@ -309,8 +375,17 @@ function metaDataProvider(type, imageId) {
   }
 
   if (type === MetadataModules.PET_SERIES) {
+    let correctedImageData = metaData['00280051'];
+    let correctedImage = getValue(metaData['00280051']);
+    if (
+      correctedImageData &&
+      correctedImageData.Value &&
+      Array.isArray(correctedImageData.Value)
+    ) {
+      correctedImage = correctedImageData.Value.join('\\');
+    }
     return {
-      correctedImage: getValue(metaData['00280051']),
+      correctedImage,
       units: getValue(metaData['00541001']),
       decayCorrection: getValue(metaData['00541102']),
     };
@@ -325,14 +400,13 @@ function metaDataProvider(type, imageId) {
 
   // Note: this is not a DICOM module, but rather an aggregation on all others
   if (type === 'instance') {
-    return getInstanceModule(imageId, metaDataProvider, instanceModuleNames);
+    return coreMetaData.getNormalized(imageId, instanceModuleNames);
   }
 }
 
 export function getImageUrlModule(imageId, metaData) {
   const { transferSyntaxUID } = getTransferSyntax(imageId, metaData);
-  const isVideo =
-    external.cornerstone.utilities.isVideoTransferSyntax(transferSyntaxUID);
+  const isVideo = utilities.isVideoTransferSyntax(transferSyntaxUID);
   const imageUrl = imageId.substring(7);
   const thumbnail = imageUrl.replace('/frames/', '/thumbnail/');
   let rendered = imageUrl.replace('/frames/', '/rendered/');

@@ -13,26 +13,25 @@ import { RequestType } from '../enums';
 import imageLoadPoolManager from '../requestPool/imageLoadPoolManager';
 import renderToCanvasGPU from './renderToCanvasGPU';
 import renderToCanvasCPU from './renderToCanvasCPU';
-import { getConfiguration } from '../init';
-import cache from '../cache';
+import cache from '../cache/cache';
 
 /**
  * The original load image options specified just an image id,  which is optimal
  * for things like thumbnails rendering a single image.
  */
-export type StackLoadImageOptions = {
+export interface StackLoadImageOptions {
   imageId: string;
-};
+}
 
 /**
  * The full image load options allows specifying more parameters for both the
  * presentation and the view so that a specific view can be referenced/displayed.
  */
-export type FullImageLoadOptions = {
+export interface FullImageLoadOptions {
   viewReference: ViewReference;
   viewPresentation: ViewPresentation;
   imageId: undefined;
-};
+}
 
 /**
  * The canvas load position allows for determining the rendered position of
@@ -47,6 +46,13 @@ export type CanvasLoadPosition = {
   topRight: Point3;
   bottomLeft: Point3;
   thicknessMm: number;
+  /**
+   * The right vector is world coordinates vector whose length and direction
+   * is such that it corresponds to a `[1,0]` vector in canvas INDEX coordinates
+   * (not canvas image coordinates, although this is offset by `[1/devicePixelRatio,0]`)
+   */
+  rightVector: Point3;
+  downVector: Point3;
 };
 
 /**
@@ -168,17 +174,9 @@ export default function loadImageToCanvas(
       );
     }
 
-    const { useNorm16Texture } = getConfiguration().rendering;
-
     // IMPORTANT: Request type should be passed if not the 'interaction'
     // highest priority will be used for the request type in the imageRetrievalPool
     const options = {
-      targetBuffer: {
-        type: useNorm16Texture ? undefined : 'Float32Array',
-      },
-      preScale: {
-        enabled: true,
-      },
       useRGBA: !!useCPURendering,
       requestType,
     };

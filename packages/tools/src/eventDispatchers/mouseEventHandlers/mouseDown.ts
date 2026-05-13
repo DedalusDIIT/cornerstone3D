@@ -1,7 +1,7 @@
-import { state } from '../../store';
+import { state } from '../../store/state';
 import { ToolModes } from '../../enums';
-import { EventTypes } from '../../types';
-import {
+import type { EventTypes } from '../../types';
+import type {
   ToolAnnotationPair,
   ToolsWithMoveableHandles,
 } from '../../types/InternalToolTypes';
@@ -67,19 +67,16 @@ export default function mouseDown(evt: EventTypes.MouseDownEventType) {
     }
   }
 
-  // Find all tools that might respond to this mouse down
-  const isPrimaryClick = evt.detail.event.buttons === 1;
-  const activeToolsWithEventBinding = getToolsWithModesForMouseEvent(
-    evt,
-    [Active],
-    evt.detail.event.buttons
-  );
-  const passiveToolsIfEventWasPrimaryMouseButton = isPrimaryClick
-    ? getToolsWithModesForMouseEvent(evt, [Passive])
-    : undefined;
+  // Find all tools that might respond to this mouse down for annotation interaction.
+  // For checking existing annotation interactions (handles, moveable annotations),
+  // we need ALL Active and Passive tools regardless of mouse button binding.
+  // This allows editing annotations created by tools bound to different mouse buttons.
+  // The button binding only determines which tool creates NEW annotations.
+  const allActiveTools = getToolsWithModesForMouseEvent(evt, [Active]);
+  const allPassiveTools = getToolsWithModesForMouseEvent(evt, [Passive]);
   const applicableTools = [
-    ...(activeToolsWithEventBinding || []),
-    ...(passiveToolsIfEventWasPrimaryMouseButton || []),
+    ...(allActiveTools || []),
+    ...(allPassiveTools || []),
   ];
 
   // Actions need to run before tool/handle selected callbacks otherwise actions
@@ -171,15 +168,19 @@ export default function mouseDown(evt: EventTypes.MouseDownEventType) {
 function getAnnotationForSelection(
   toolsWithMovableHandles: ToolAnnotationPair[]
 ): ToolAnnotationPair {
-  return (
-    (toolsWithMovableHandles.length > 1 &&
-      toolsWithMovableHandles.find(
-        (item) =>
-          !isAnnotationLocked(item.annotation) &&
-          isAnnotationVisible(item.annotation.annotationUID)
-      )) ||
-    toolsWithMovableHandles[0]
-  );
+  if (toolsWithMovableHandles.length > 1) {
+    const unlockAndVisibleAnnotation = toolsWithMovableHandles.find((item) => {
+      const isUnlocked = !isAnnotationLocked(item.annotation.annotationUID);
+      const isVisible = isAnnotationVisible(item.annotation.annotationUID);
+      return isUnlocked && isVisible;
+    });
+
+    if (unlockAndVisibleAnnotation) {
+      return unlockAndVisibleAnnotation;
+    }
+  }
+
+  return toolsWithMovableHandles[0];
 }
 
 /**

@@ -1,10 +1,13 @@
-import { Enums, utilities, metaData } from '@cornerstonejs/core';
-import type { Types, RetrieveOptions } from '@cornerstonejs/core';
+import {
+  Enums,
+  imageRetrievalPoolManager,
+  utilities,
+} from '@cornerstonejs/core';
+import { Enums as csCoreEnums, type Types } from '@cornerstonejs/core';
 
-import external from '../../externalModules';
 import createImage from '../createImage';
 import getPixelData from './getPixelData';
-import { DICOMLoaderIImage, DICOMLoaderImageOptions } from '../../types';
+import type { DICOMLoaderIImage, DICOMLoaderImageOptions } from '../../types';
 
 const { ProgressiveIterator } = utilities;
 const { ImageQualityStatus } = Enums;
@@ -17,6 +20,104 @@ const streamableTransferSyntaxes = new Set<string>([
   // proceed and eventually work.
   '1.2.840.10008.1.2.4.203',
 ]);
+
+/**
+ * Detect the transfer syntax by inspecting the first bytes of the pixel data.
+ * This is used as a fallback when the server does not include a transfer-syntax
+ * parameter in the Content-Type header.
+ */
+export function detectTransferSyntaxFromPixelData(
+  pixelData: Uint8Array | ArrayBuffer
+): string | undefined {
+  const data =
+    pixelData instanceof Uint8Array ? pixelData : new Uint8Array(pixelData);
+
+  if (data.length < 4) {
+    return undefined;
+  }
+
+  const isJPEG = data[0] === 0xff && data[1] === 0xd8;
+  if (isJPEG) {
+    return detectJPEGVariant(data);
+  }
+
+  // JPEG 2000 codestream: FF 4F FF 51
+  const isJ2KCodestream =
+    data[0] === 0xff &&
+    data[1] === 0x4f &&
+    data[2] === 0xff &&
+    data[3] === 0x51;
+  if (isJ2KCodestream) {
+    return '1.2.840.10008.1.2.4.90';
+  }
+
+  // JPEG 2000 JP2 file format: 00 00 00 0C 6A 50
+  const isJ2KFile =
+    data.length >= 6 &&
+    data[0] === 0x00 &&
+    data[1] === 0x00 &&
+    data[2] === 0x00 &&
+    data[3] === 0x0c &&
+    data[4] === 0x6a &&
+    data[5] === 0x50;
+  if (isJ2KFile) {
+    return '1.2.840.10008.1.2.4.90';
+  }
+
+  return undefined;
+}
+
+// SOF marker to DICOM transfer syntax mapping
+const jpegSOFMap: Record<number, string> = {
+  0xc0: '1.2.840.10008.1.2.4.50', // SOF0 - JPEG Baseline
+  0xc3: '1.2.840.10008.1.2.4.70', // SOF3 - JPEG Lossless
+  0xf7: '1.2.840.10008.1.2.4.80', // SOF55 - JPEG-LS
+};
+
+function detectJPEGVariant(data: Uint8Array): string {
+  let i = 2;
+  while (i < data.length - 1) {
+    // Find the next 0xFF marker prefix
+    if (data[i] !== 0xff) {
+      i++;
+      continue;
+    }
+    const marker = data[i + 1];
+
+    // Check for SOF markers that identify the JPEG variant
+    if (jpegSOFMap[marker]) {
+      return jpegSOFMap[marker];
+    }
+    // SOS = Start of Scan - stop looking for SOF beyond this
+    if (marker === 0xda) {
+      break;
+    }
+
+    // FF 00 is byte stuffing, not a real marker — skip it
+    if (marker === 0x00) {
+      i += 2;
+      continue;
+    }
+
+    // Standalone markers (TEM, RST0-RST7, SOI, EOI) have no length field
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
+      i += 2;
+      continue;
+    }
+
+    // All other markers have a 2-byte big-endian length field that includes
+    // the length bytes themselves. Skip past the entire segment to avoid
+    // false matches inside APP marker payloads.
+    if (i + 3 < data.length) {
+      const segmentLength = (data[i + 2] << 8) | data[i + 3];
+      i += 2 + segmentLength;
+    } else {
+      break;
+    }
+  }
+  // Generic JPEG fallback
+  return '1.2.840.10008.1.2.4.50';
+}
 
 /**
  * Helper method to extract the transfer-syntax from the response of the server.
@@ -81,7 +182,7 @@ export function getTransferSyntaxForContentType(contentType: string): string {
 }
 
 function getImageRetrievalPool() {
-  return external.cornerstone.imageRetrievalPoolManager;
+  return imageRetrievalPoolManager;
 }
 
 export interface StreamingData {
@@ -96,7 +197,7 @@ export interface StreamingData {
 
 export interface CornerstoneWadoRsLoaderOptions
   extends DICOMLoaderImageOptions {
-  requestType?: string;
+  requestType?: csCoreEnums.RequestType;
   additionalDetails?: {
     imageId: string;
   };
@@ -105,7 +206,7 @@ export interface CornerstoneWadoRsLoaderOptions
   retrieveType?: string;
   transferSyntaxUID?: string;
   // Retrieve options are stored to provide sub-options for nested calls
-  retrieveOptions?: RetrieveOptions;
+  retrieveOptions?: Types.RangeRetrieveOptions;
   // Streaming data adds information about already streamed results.
   streamingData?: StreamingData;
 }
@@ -144,9 +245,17 @@ function loadImage(
           done = true,
           extractDone = true,
         } = result;
-        const transferSyntax = getTransferSyntaxForContentType(
+        let transferSyntax = getTransferSyntaxForContentType(
           result.contentType
         );
+        // If the server didn't specify a transfer syntax in Content-Type,
+        // detect it from the pixel data bytes.
+        if (transferSyntax === '1.2.840.10008.1.2' && pixelData?.length) {
+          const detected = detectTransferSyntaxFromPixelData(pixelData);
+          if (detected) {
+            transferSyntax = detected;
+          }
+        }
         if (!extractDone && !streamableTransferSyntaxes.has(transferSyntax)) {
           continue;
         }
@@ -194,18 +303,17 @@ function loadImage(
     });
   }
 
-  const requestType = options.requestType || 'interaction';
+  const requestType =
+    options.requestType || csCoreEnums.RequestType.Interaction;
   const additionalDetails = options.additionalDetails || { imageId };
   const priority = options.priority === undefined ? 5 : options.priority;
-  const addToBeginning = options.addToBeginning || false;
   const uri = imageId.substring(7);
 
   imageRetrievalPool.addRequest(
     sendXHR.bind(this, uri, imageId, mediaType),
     requestType,
     additionalDetails,
-    priority,
-    addToBeginning
+    priority
   );
 
   return {

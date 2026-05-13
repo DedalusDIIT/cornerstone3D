@@ -1,10 +1,10 @@
-import external from '../../externalModules';
 import { getOptions } from './options';
-import {
+import type {
   LoaderXhrRequestError,
   LoaderXhrRequestParams,
   LoaderXhrRequestPromise,
 } from '../../types';
+import { triggerEvent, eventTarget } from '@cornerstonejs/core';
 
 function xhrRequest(
   url: string,
@@ -12,7 +12,6 @@ function xhrRequest(
   defaultHeaders: Record<string, string> = {},
   params: LoaderXhrRequestParams = {}
 ): LoaderXhrRequestPromise<ArrayBuffer> {
-  const { cornerstone } = external;
   const options = getOptions();
 
   const errorInterceptor = (xhr: XMLHttpRequest) => {
@@ -30,14 +29,26 @@ function xhrRequest(
 
   // Make the request for the DICOM P10 SOP Instance
   const promise: LoaderXhrRequestPromise<ArrayBuffer> =
-    new Promise<ArrayBuffer>((resolve, reject) => {
+    new Promise<ArrayBuffer>(async (resolve, reject) => {
       options.open(xhr, url, defaultHeaders, params);
-      const beforeSendHeaders = options.beforeSend(
+
+      // Track headers set directly on xhr during beforeSend so we don't
+      // overwrite them with defaults (xhr.setRequestHeader is additive).
+      const headersSetInBeforeSend = new Set<string>();
+      const origSetRequestHeader = xhr.setRequestHeader.bind(xhr);
+      xhr.setRequestHeader = (name: string, value: string) => {
+        headersSetInBeforeSend.add(name);
+        origSetRequestHeader(name, value);
+      };
+
+      const beforeSendHeaders = await options.beforeSend(
         xhr,
         imageId,
         defaultHeaders,
         params
       );
+
+      xhr.setRequestHeader = origSetRequestHeader;
 
       xhr.responseType = 'arraybuffer';
 
@@ -48,6 +59,9 @@ function xhrRequest(
           return;
         }
         if (key === 'Accept' && url.indexOf('accept=') !== -1) {
+          return;
+        }
+        if (headersSetInBeforeSend.has(key)) {
           return;
         }
         xhr.setRequestHeader(key, headers[key]);
@@ -73,11 +87,7 @@ function xhrRequest(
           imageId,
         };
 
-        cornerstone.triggerEvent(
-          (cornerstone as any).events,
-          'cornerstoneimageloadstart',
-          eventData
-        );
+        triggerEvent(eventTarget, 'cornerstoneimageloadstart', eventData);
       };
 
       // Event triggered when downloading an image ends
@@ -93,11 +103,7 @@ function xhrRequest(
         };
 
         // Event
-        cornerstone.triggerEvent(
-          (cornerstone as any).events,
-          'cornerstoneimageloadend',
-          eventData
-        );
+        triggerEvent(eventTarget, 'cornerstoneimageloadend', eventData);
       };
 
       // handle response data
@@ -106,7 +112,9 @@ function xhrRequest(
         if (options.onreadystatechange) {
           options.onreadystatechange(event, params);
 
-          return;
+          // This should not return, because if a hook is defined, that function
+          // will be called but the image load promise will never resolve.
+          // return;
         }
 
         // Default action
@@ -144,6 +152,16 @@ function xhrRequest(
           total = oProgress.total; // evt.total the total bytes seted by the header
           percentComplete = Math.round((loaded / total) * 100);
         }
+
+        const eventData = {
+          url,
+          imageId,
+          loaded,
+          total,
+          percentComplete,
+        };
+
+        triggerEvent(eventTarget, 'cornerstoneimageloadprogress', eventData);
 
         // Action
         if (options.onprogress) {

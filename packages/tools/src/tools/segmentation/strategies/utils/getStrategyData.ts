@@ -1,102 +1,173 @@
-import { cache, utilities } from '@cornerstonejs/core';
-import type { Types } from '@cornerstonejs/core';
-import { isVolumeSegmentation } from './stackVolumeCheck';
-import { LabelmapToolOperationDataStack } from '../../../../types';
+import { cache, Enums, eventTarget, type Types } from '@cornerstonejs/core';
+import type {
+  LabelmapToolOperationDataStack,
+  LabelmapToolOperationDataVolume,
+} from '../../../../types';
+import { getCurrentLabelmapImageIdForViewport } from '../../../../stateManagement/segmentation/segmentationState';
+import { getLabelmapActorEntry } from '../../../../stateManagement/segmentation/helpers';
+import { getReferenceVolumeForSegmentationVolume } from '../../../../utilities/segmentation/getReferenceVolumeForSegmentationVolume';
 
-const { VoxelManager } = utilities;
+/**
+ * Get strategy data for volume viewport
+ * @param operationData - The operation data containing volumeId and referencedVolumeId
+ * @returns The strategy data for volume viewport or null if error
+ */
+function getStrategyDataForVolumeViewport({ operationData }) {
+  const { volumeId } = operationData;
 
-function getStrategyData({ operationData, viewport }) {
-  let segmentationImageData, segmentationScalarData, imageScalarData;
-  let imageDimensions: Types.Point3;
-  let segmentationDimensions: Types.Point3;
-  let imageVoxelManager;
+  if (!volumeId) {
+    const event = new CustomEvent(Enums.Events.ERROR_EVENT, {
+      detail: {
+        type: 'Segmentation',
+        message: 'No volume id found for the segmentation',
+      },
+      cancelable: true,
+    });
+    eventTarget.dispatchEvent(event);
+    return null;
+  }
+
+  const segmentationVolume = cache.getVolume(volumeId);
+  const imageVolume = getReferenceVolumeForSegmentationVolume(volumeId);
+
+  if (!segmentationVolume || !imageVolume) {
+    return null;
+  }
+
+  const { imageData: segmentationImageData } = segmentationVolume;
+  const { voxelManager: segmentationVoxelManager } = segmentationVolume;
+  const { voxelManager: imageVoxelManager, imageData } = imageVolume;
+
+  return {
+    segmentationImageData,
+    segmentationVoxelManager,
+    segmentationScalarData: null,
+    imageScalarData: null,
+    imageVoxelManager,
+    imageData,
+  };
+}
+
+/**
+ * Get strategy data for stack viewport
+ * @param operationData - The operation data containing segmentationId and imageId
+ * @param viewport - The viewport instance
+ * @returns The strategy data for stack viewport or null if error
+ */
+function getStrategyDataForStackViewport({
+  operationData,
+  viewport,
+  strategy,
+}) {
+  const { segmentationId } = operationData as LabelmapToolOperationDataStack;
+
+  let segmentationImageData;
   let segmentationVoxelManager;
+  let segmentationScalarData;
+  let imageScalarData;
+  let imageVoxelManager;
+  let imageData;
+  if (strategy.ensureSegmentationVolumeFor3DManipulation) {
+    // Todo: I don't know how to handle this, seems like strategies cannot return anything
+    // and just manipulate the operationData?
+    strategy.ensureSegmentationVolumeFor3DManipulation({
+      operationData,
+      viewport,
+    });
 
-  if (isVolumeSegmentation(operationData, viewport)) {
-    const { volumeId, referencedVolumeId } = operationData;
-
-    const segmentationVolume = cache.getVolume(volumeId);
-
-    if (!segmentationVolume) {
-      return;
-    }
-    segmentationVoxelManager = segmentationVolume.voxelManager;
-
-    // we only need the referenceVolumeId if we do thresholding
-    // but for other operations we don't need it so make it optional
-    if (referencedVolumeId) {
-      const imageVolume = cache.getVolume(referencedVolumeId);
-      imageScalarData = imageVolume.getScalarData();
-      imageDimensions = imageVolume.dimensions;
-    }
-
-    ({ imageData: segmentationImageData } = segmentationVolume);
-    segmentationScalarData = segmentationVolume.getScalarData();
-    segmentationDimensions = segmentationVolume.dimensions;
+    segmentationVoxelManager = operationData.segmentationVoxelManager;
+    segmentationImageData = operationData.segmentationImageData;
+    segmentationScalarData = null;
   } else {
-    const { imageIdReferenceMap, segmentationRepresentationUID } =
-      operationData as LabelmapToolOperationDataStack;
-
-    if (!imageIdReferenceMap) {
-      return;
+    const labelmapImageId = getCurrentLabelmapImageIdForViewport(
+      viewport.id,
+      segmentationId
+    );
+    if (!labelmapImageId) {
+      return null;
     }
+    const actorEntry = getLabelmapActorEntry(viewport.id, segmentationId);
 
-    const currentImageId = viewport.getCurrentImageId();
-    if (!currentImageId) {
-      return;
+    if (!actorEntry) {
+      return null;
     }
+    const currentSegImage = cache.getImage(labelmapImageId);
+    segmentationImageData = actorEntry.actor.getMapper().getInputData();
+    segmentationVoxelManager = currentSegImage.voxelManager;
 
-    // we know that the segmentationRepresentationUID is the name of the actor always
-    // and always circle modifies the current imageId which in fact is the imageData
-    // of that actor at that moment so we have the imageData already
-    const actor = viewport.getActor(segmentationRepresentationUID);
-    if (!actor) {
-      return;
-    }
-    segmentationImageData = actor.actor.getMapper().getInputData();
-    segmentationVoxelManager = segmentationImageData.voxelManager;
-    const currentSegmentationImageId = imageIdReferenceMap.get(currentImageId);
+    const currentSegmentationImageId = operationData.imageId;
 
     const segmentationImage = cache.getImage(currentSegmentationImageId);
     if (!segmentationImage) {
-      return;
+      return null;
     }
     segmentationScalarData = segmentationImage.getPixelData?.();
+  }
+
+  if (strategy.ensureImageVolumeFor3DManipulation) {
+    strategy.ensureImageVolumeFor3DManipulation({
+      operationData,
+      viewport,
+    });
+
+    imageVoxelManager = operationData.imageVoxelManager;
+    imageScalarData = operationData.imageScalarData;
+    imageData = operationData.imageData;
+  } else {
+    const currentImageId = viewport.getCurrentImageId();
+    if (!currentImageId) {
+      return null;
+    }
 
     const image = cache.getImage(currentImageId);
-    const imageData = image ? null : viewport.getImageData();
+    imageData = image ? null : viewport.getImageData();
 
     // VERY IMPORTANT
     // This is the pixel data of the image that is being segmented in the cache
     // and we need to use this to for the modification
     imageScalarData = image?.getPixelData() || imageData.getScalarData();
-    imageDimensions = image
-      ? [image.columns, image.rows, 1]
-      : imageData.dimensions;
-    segmentationDimensions = [
-      segmentationImage.columns,
-      segmentationImage.rows,
-      1,
-    ];
     imageVoxelManager = image?.voxelManager;
   }
-
-  segmentationVoxelManager ||= VoxelManager.createVolumeVoxelManager(
-    segmentationDimensions,
-    segmentationScalarData
-  );
-
-  imageVoxelManager ||=
-    imageDimensions &&
-    VoxelManager.createVolumeVoxelManager(imageDimensions, imageScalarData);
 
   return {
     segmentationImageData,
     segmentationScalarData,
-    segmentationVoxelManager,
     imageScalarData,
+    segmentationVoxelManager,
     imageVoxelManager,
+    imageData,
   };
+}
+
+/**
+ * Get strategy data based on viewport type
+ * @param params - Object containing operationData and viewport
+ * @returns The strategy data or null if error
+ */
+function getStrategyData({
+  operationData,
+  viewport,
+  strategy,
+}: {
+  operationData:
+    | LabelmapToolOperationDataStack
+    | LabelmapToolOperationDataVolume;
+  viewport?: Types.IStackViewport | Types.IVolumeViewport;
+  strategy: unknown;
+}) {
+  if (!operationData) {
+    return null;
+  }
+
+  if (
+    ('volumeId' in operationData && operationData.volumeId != null) ||
+    ('referencedVolumeId' in operationData &&
+      operationData.referencedVolumeId != null)
+  ) {
+    return getStrategyDataForVolumeViewport({ operationData });
+  }
+
+  return getStrategyDataForStackViewport({ operationData, viewport, strategy });
 }
 
 export { getStrategyData };

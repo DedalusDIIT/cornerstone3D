@@ -4,17 +4,21 @@ import {
   eventTarget,
   imageLoadPoolManager,
   cache,
-  getConfiguration as getCoreConfiguration,
+  metaData,
+  utilities,
+  triggerEvent,
 } from '@cornerstonejs/core';
-import { addToolState, getToolState } from './state';
+import { addToolState, getToolState, type StackPrefetchData } from './state';
 import {
   getStackData,
   requestType,
-  priority,
   clearFromImageIds,
   getPromiseRemovedHandler,
 } from './stackPrefetchUtils';
-import { roundNumber } from '../../utilities';
+import { Events } from '../../enums';
+import type { EventTypes } from '../../types';
+
+const { imageRetrieveMetadataProvider } = utilities;
 
 let configuration = {
   maxImagesToPrefetch: Infinity,
@@ -30,6 +34,8 @@ let resetPrefetchTimeout;
 // Starting the prefetch quickly isn't an issue as the main image is already being
 // loaded, so a 5 ms prefetch delay is fine
 const resetPrefetchDelay = 5;
+
+const priorities = {};
 
 /**
  * Call this to enable stack context sensitive prefetch.  Should be called
@@ -60,10 +66,10 @@ const resetPrefetchDelay = 5;
  *     * Up to 100 images in the direction of travel will be prefetched
  *
  * @param element - to prefetch on
+ * @param priority - priority to be used for the request manager
  */
-const enable = (element): void => {
+const enable = (element, priority = 0): void => {
   const stack = getStackData(element);
-
   if (!stack) {
     return;
   }
@@ -74,7 +80,9 @@ const enable = (element): void => {
 
   updateToolState(element);
 
-  prefetch(element);
+  priorities[element] = priority;
+
+  prefetch(element, priority);
 
   element.removeEventListener(Enums.Events.STACK_NEW_IMAGE, onImageUpdated);
   element.addEventListener(Enums.Events.STACK_NEW_IMAGE, onImageUpdated);
@@ -91,7 +99,7 @@ const enable = (element): void => {
   );
 };
 
-function prefetch(element) {
+function prefetch(element, priority = 0) {
   const stack = getStackData(element);
   if (!stack) {
     return;
@@ -108,10 +116,11 @@ function prefetch(element) {
     return;
   }
 
-  const stackPrefetch = stackPrefetchData || {};
+  const stackPrefetch = (stackPrefetchData || {}) as StackPrefetchData;
 
   // If all the requests are complete, disable the stackPrefetch tool
-  stackPrefetch.enabled &&= stackPrefetch.indicesToRequest?.length;
+  stackPrefetch.enabled =
+    stackPrefetch.enabled && (stackPrefetch.indicesToRequest?.length ?? 0) > 0;
 
   // Make sure the tool is still enabled
   if (stackPrefetch.enabled === false) {
@@ -192,54 +201,64 @@ function prefetch(element) {
           stats.initialTime = Date.now() - stats.start;
           stats.initialSize = stats.imageIds.size;
           updateToolState(element, usage);
-          prefetch(element);
+          prefetch(element, priority);
         } else if (stats.imageIds.size) {
           stats.fillTime = Date.now() - stats.start;
           const { size } = stats.imageIds;
           stats.fillSize = size;
-          console.log(
-            'Done cache fill',
-            stats.fillTime,
-            'ms',
-            size,
-            'items',
-            'average total time',
-            roundNumber(stats.fillTime / size),
-            'ms',
-            'average load',
-            roundNumber(stats.loadTimeInMS / size),
-            'ms',
-            'average decode',
-            roundNumber(stats.decodeTimeInMS / size),
-            'ms'
-          );
+          // console.log(
+          //   'Done cache fill',
+          //   stats.fillTime,
+          //   'ms',
+          //   size,
+          //   'items',
+          //   'average total time',
+          //   roundNumber(stats.fillTime / size),
+          //   'ms',
+          //   'average load',
+          //   roundNumber(stats.loadTimeInMS / size),
+          //   'ms',
+          //   'average decode',
+          //   roundNumber(stats.decodeTimeInMS / size),
+          //   'ms'
+          // );
         }
       }
     }
+
+    // If all requests are complete, trigger the STACK_PREFETCH_COMPLETE event,
+    // providing the last imageId and triggering element so that the stack can
+    // be identified
+    if (stackPrefetch.indicesToRequest.length === 0) {
+      const eventDetail: EventTypes.StackPrefetchCompleteEventDetail = {
+        element: element,
+        lastPrefetchedImageId: imageId,
+      };
+      triggerEvent(eventTarget, Events.STACK_PREFETCH_COMPLETE, eventDetail);
+    }
   }
 
-  const requestFn = (imageId, options) =>
-    imageLoader
+  const requestFn = (imageId, options) => {
+    const { retrieveOptions = {} } =
+      metaData.get(
+        imageRetrieveMetadataProvider.IMAGE_RETRIEVE_CONFIGURATION,
+        imageId,
+        'stack'
+      ) || {};
+    options.retrieveOptions = {
+      ...options.retrieveOptions,
+      ...(retrieveOptions.default || Object.values(retrieveOptions)?.[0] || {}),
+    };
+    return imageLoader
       .loadAndCacheImage(imageId, options)
       .then(() => doneCallback(imageId));
-
-  const { useNorm16Texture, preferSizeOverAccuracy } =
-    getCoreConfiguration().rendering;
-
-  const useNativeDataType = useNorm16Texture || preferSizeOverAccuracy;
+  };
 
   stackPrefetch.indicesToRequest.forEach((imageIdIndex) => {
     const imageId = stack.imageIds[imageIdIndex];
     // IMPORTANT: Request type should be passed if not the 'interaction'
     // highest priority will be used for the request type in the imageRetrievalPool
     const options = {
-      targetBuffer: {
-        type: useNativeDataType ? undefined : 'Float32Array',
-      },
-      preScale: {
-        enabled: true,
-      },
-      useNativeDataType,
       requestType,
     };
 
@@ -267,7 +286,7 @@ function onImageUpdated(e) {
     // An exception will be thrown because the element will not be enabled anymore
     try {
       updateToolState(element);
-      prefetch(element);
+      prefetch(element, priorities[element]);
     } catch (error) {
       return;
     }
@@ -292,20 +311,22 @@ const updateToolState = (element, usage?: number) => {
   let { maxAfter = 2, minBefore = 2 } = configuration;
   const { directionExtraImages = 10 } = configuration;
   // Use the currentImageIdIndex from the stack as the initialImageIdIndex
-  const stackPrefetchData = getToolState(element) || {
-    indicesToRequest: [],
-    currentImageIdIndex,
-    stackCount: 0,
-    enabled: true,
-    direction: 1,
-    stats: {
-      start: Date.now(),
-      imageIds: new Map(),
-      decodeTimeInMS: 0,
-      loadTimeInMS: 0,
-      totalBytes: 0,
-    },
-  };
+  const stackPrefetchData =
+    getToolState(element) ||
+    ({
+      indicesToRequest: [],
+      currentImageIdIndex,
+      stackCount: 0,
+      enabled: true,
+      direction: 1,
+      stats: {
+        start: Date.now(),
+        imageIds: new Map(),
+        decodeTimeInMS: 0,
+        loadTimeInMS: 0,
+        totalBytes: 0,
+      },
+    } as StackPrefetchData);
   const delta = currentImageIdIndex - stackPrefetchData.currentImageIdIndex;
   stackPrefetchData.direction = signum(delta);
   stackPrefetchData.currentImageIdIndex = currentImageIdIndex;

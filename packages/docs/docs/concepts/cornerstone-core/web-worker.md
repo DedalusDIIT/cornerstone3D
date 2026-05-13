@@ -1,6 +1,7 @@
 ---
 id: webWorker
 title: Web Workers
+summary: API for offloading computational tasks to background threads, providing priority-based execution and efficient management of worker instances
 ---
 
 WebWorkers provide a way to run scripts in background threads, allowing web applications to perform tasks without interfering with the user interface. They are particularly useful for executing computationally intensive tasks or those that require a lot of processing time.
@@ -123,8 +124,8 @@ the `executeTask` is used to execute a task on a worker. It takes the following 
 - `methodName`: the name of the method that we want to execute on the worker (the function name, in the above example `fib` or `inc`)
 - `args` (`default = {}`): the arguments that are passed to the function. The arguments should be serializable which means you cannot pass DOM elements, functions, or any other non-serializable objects as arguments (check below on how to pass non-serializable functions)
 - `options` an object with the following properties:
-  - `requestType (default = RequestType.Compute)` : the group of the request. This is used to prioritize the requests. The default is `RequestType.Compute` which is the lowest priority.
-    Other groups in order of priority are `RequestType.Interaction` and `RequestType.Thumbnail`, `RequestType.Prefetch`
+  - `requestType (default = RequestType.COMPUTE)` : the group of the request. This is used to prioritize the requests. The default is `RequestType.COMPUTE` which is the lowest priority.
+    Other groups in order of priority are `RequestType.INTERACTION` and `RequestType.THUMBNAIL`, `RequestType.PREFETCH`
   - `priority` (`default = 0`): the priority of the request within the specified group. The lower the number the higher the priority.
   - `options` (`default= {}`): the options to the pool manager (you most likely don't need to change this)
   - `callbacks` (`default = []`): pass in any functions that you want to be called inside the worker.

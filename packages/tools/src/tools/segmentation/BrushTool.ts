@@ -1,24 +1,20 @@
-import {
-  utilities as csUtils,
-  cache,
-  getEnabledElement,
-  StackViewport,
-  eventTarget,
-  Enums,
-} from '@cornerstonejs/core';
-import { vec3, vec2 } from 'gl-matrix';
-
+import { getEnabledElement, eventTarget } from '@cornerstonejs/core';
 import type { Types } from '@cornerstonejs/core';
+import { vec3, vec2 } from 'gl-matrix';
+import { Events, ToolModes, StrategyCallbacks } from '../../enums';
+
 import type {
   PublicToolProps,
   ToolProps,
   EventTypes,
   SVGDrawingHelper,
+  LabelmapToolOperationDataVolume,
+  LabelmapToolOperationDataStack,
 } from '../../types';
-import { BaseTool } from '../base';
 import {
   fillInsideSphere,
   thresholdInsideSphere,
+  thresholdInsideSphereIsland,
 } from './strategies/fillSphere';
 import { eraseInsideSphere } from './strategies/eraseSphere';
 import {
@@ -27,77 +23,25 @@ import {
 } from './strategies/fillCircle';
 import { eraseInsideCircle } from './strategies/eraseCircle';
 import {
-  Events,
-  ToolModes,
-  SegmentationRepresentations,
-  StrategyCallbacks,
-} from '../../enums';
-import { drawCircle as drawCircleSvg } from '../../drawingSvg';
-import {
   resetElementCursor,
   hideElementCursor,
 } from '../../cursors/elementCursor';
 
 import triggerAnnotationRenderForViewportUIDs from '../../utilities/triggerAnnotationRenderForViewportIds';
-import {
-  config as segmentationConfig,
-  segmentLocking,
-  segmentIndex as segmentIndexController,
-  state as segmentationState,
-  activeSegmentation,
-} from '../../stateManagement/segmentation';
-import {
-  LabelmapSegmentationDataVolume,
-  LabelmapSegmentationDataStack,
-} from '../../types/LabelmapTypes';
-import { isVolumeSegmentation } from './strategies/utils/stackVolumeCheck';
-
-/**
- * A type for preview data/information, used to setup previews on hover, or
- * maintain the preview information.
- */
-export type PreviewData = {
-  /**
-   *  The preview data returned from the strategy
-   */
-  preview: unknown;
-  timer?: number;
-  timerStart: number;
-  startPoint: Types.Point2;
-  element: HTMLDivElement;
-  isDrag: boolean;
-};
+import LabelmapBaseTool from './LabelmapBaseTool';
+import { getStrategyData } from './strategies/utils/getStrategyData';
 
 /**
  * @public
  */
-class BrushTool extends BaseTool {
+class BrushTool extends LabelmapBaseTool {
   static toolName;
-  private _editData: {
-    segmentsLocked: number[]; //
-    segmentationRepresentationUID?: string;
-    imageIdReferenceMap?: Map<string, string>;
-    volumeId?: string;
-    referencedVolumeId?: string;
-  } | null;
-  private _hoverData?: {
-    brushCursor: any;
-    segmentationId: string;
-    segmentIndex: number;
-    segmentationRepresentationUID: string;
-    segmentColor: [number, number, number, number];
-    viewportIdsToRender: string[];
-    centerCanvas?: Array<number>;
-  };
-
-  private _previewData?: PreviewData = {
-    preview: null,
-    element: null,
-    timerStart: 0,
-    timer: null,
-    startPoint: [NaN, NaN],
-    isDrag: false,
-  };
+  // Remember the last drag position in both canvas and world space so we can
+  // pass a full stroke segment to the strategies instead of a single point.
+  private _lastDragInfo: {
+    canvas: Types.Point2;
+    world: Types.Point3;
+  } | null = null;
 
   constructor(
     toolProps: PublicToolProps = {},
@@ -105,26 +49,46 @@ class BrushTool extends BaseTool {
       supportedInteractionTypes: ['Mouse', 'Touch'],
       configuration: {
         strategies: {
+          /** Perform fill of the active segment index inside a (2d) circle */
           FILL_INSIDE_CIRCLE: fillInsideCircle,
+          /** Erase (to 0) inside a circle */
           ERASE_INSIDE_CIRCLE: eraseInsideCircle,
+          /** Fill a 3d sphere with the active segment index */
           FILL_INSIDE_SPHERE: fillInsideSphere,
+          /** Erase inside a 3d sphere, clearing any segment index (to 0) */
           ERASE_INSIDE_SPHERE: eraseInsideSphere,
+          /**
+           * Threshold inside a circle, either with a dynamic threshold value
+           * based on the voxels in a 2d plane around the center click.
+           * Performs island removal.
+           */
           THRESHOLD_INSIDE_CIRCLE: thresholdInsideCircle,
+          /**
+           * Threshold inside a sphere, either dynamic or pre-configured.
+           * For dynamic, base the threshold on a 2d CIRCLE around the center click.
+           * Do not perform island removal (this may be slow)
+           * Users may see delays dragging the sphere for large radius values and
+           * for complex mixtures of texture.
+           */
           THRESHOLD_INSIDE_SPHERE: thresholdInsideSphere,
-        },
-        strategySpecificConfiguration: {
-          THRESHOLD: {
-            threshold: [-150, -70], // E.g. CT Fat // Only used during threshold strategies.
-          },
+          /**
+           * Threshold inside a sphere, but also include island removal.
+           * The current implementation of this is fairly fast now, but users may
+           * see delays when island removal occurs on large sections of the volume.
+           */
+          THRESHOLD_INSIDE_SPHERE_WITH_ISLAND_REMOVAL:
+            thresholdInsideSphereIsland,
         },
         defaultStrategy: 'FILL_INSIDE_CIRCLE',
         activeStrategy: 'FILL_INSIDE_CIRCLE',
-        thresholdVolumeId: null,
         brushSize: 25,
+        useCenterSegmentIndex: false,
         preview: {
           // Have to enable the preview to use this
           enabled: false,
-          previewColors: {},
+          previewColors: {
+            0: [255, 255, 255, 128],
+          },
           // The time before showing a preview
           previewTimeMs: 250,
           // The distance to move to show a preview before preview time expired
@@ -151,6 +115,48 @@ class BrushTool extends BaseTool {
               },
             ],
           },
+          /**
+           * Pressing the i key will interpolate between labelmap slices,
+           * without distance or extent extrapolation.  This has to be used
+           * on overlapping segments.  That is, for two slices (axial, sagittal or coronal),
+           * with intervening slices, where the segments occupy the same area
+           * of the image, an interpolation between the two segments will
+           * created on intervening slices.
+           */
+          [StrategyCallbacks.Interpolate]: {
+            method: StrategyCallbacks.Interpolate,
+            bindings: [
+              {
+                key: 'i',
+              },
+            ],
+            configuration: {
+              useBallStructuringElement: true,
+              // noHeuristicAlignment: true,
+              noUseDistanceTransform: true,
+              noUseExtrapolation: true,
+            },
+          },
+          /**
+           * Pressing the e key will interpolate with the full set of defaults,
+           * that includes some distance/extent extrapolation, so can interpolate
+           * between SLIGHTLY non-overlapping labelmaps.  That is, if you have
+           * segments on two slices, and the slices occupy almost the same
+           * are on the two different slices, then the slices in between will
+           * be interpolated.  If the position is quite different, it may create
+           * an interpolation, but it won't be a very useful one as it will be
+           * two separate interpolations going to an empty space.
+           */
+          interpolateExtrapolation: {
+            method: StrategyCallbacks.Interpolate,
+            bindings: [
+              {
+                key: 'e',
+              },
+            ],
+            // Morphological interpolation config
+            configuration: {},
+          },
         },
       },
     }
@@ -175,121 +181,15 @@ class BrushTool extends BaseTool {
     this.rejectPreview();
   }
 
-  createEditData(element) {
-    const enabledElement = getEnabledElement(element);
-    const { viewport } = enabledElement;
-
-    const toolGroupId = this.toolGroupId;
-
-    const activeSegmentationRepresentation =
-      activeSegmentation.getActiveSegmentationRepresentation(toolGroupId);
-    if (!activeSegmentationRepresentation) {
-      throw new Error(
-        'No active segmentation detected, create a segmentation representation before using the brush tool'
-      );
-    }
-
-    const { segmentationId, type, segmentationRepresentationUID } =
-      activeSegmentationRepresentation;
-
-    if (type === SegmentationRepresentations.Contour) {
-      throw new Error('Not implemented yet');
-    }
-
-    const segmentsLocked = segmentLocking.getLockedSegments(segmentationId);
-
-    const { representationData } =
-      segmentationState.getSegmentation(segmentationId);
-
-    const labelmapData =
-      representationData[SegmentationRepresentations.Labelmap];
-
-    if (isVolumeSegmentation(labelmapData, viewport)) {
-      const { volumeId } = representationData[
-        type
-      ] as LabelmapSegmentationDataVolume;
-      const actors = viewport.getActors();
-
-      const isStackViewport = viewport instanceof StackViewport;
-
-      if (isStackViewport) {
-        const event = new CustomEvent(Enums.Events.ERROR_EVENT, {
-          detail: {
-            type: 'Segmentation',
-            message: 'Cannot perform brush operation on the selected viewport',
-          },
-          cancelable: true,
-        });
-        eventTarget.dispatchEvent(event);
-        return null;
-      }
-
-      // we used to take the first actor here but we should take the one that is
-      // probably the same size as the segmentation volume
-      const volumes = actors.map((actorEntry) =>
-        cache.getVolume(actorEntry.referenceId)
-      );
-
-      const segmentationVolume = cache.getVolume(volumeId);
-
-      const referencedVolumeIdToThreshold =
-        volumes.find((volume) =>
-          csUtils.isEqual(volume.dimensions, segmentationVolume.dimensions)
-        )?.volumeId || volumes[0]?.volumeId;
-
-      return {
-        volumeId,
-        referencedVolumeId:
-          this.configuration.thresholdVolumeId ?? referencedVolumeIdToThreshold,
-        segmentsLocked,
-        segmentationRepresentationUID,
-      };
-    } else {
-      const { imageIdReferenceMap } =
-        labelmapData as LabelmapSegmentationDataStack;
-
-      const currentImageId = viewport.getCurrentImageId();
-
-      if (!imageIdReferenceMap.get(currentImageId)) {
-        // if there is no stack segmentation slice for the current image
-        // we should not allow the user to perform any operation
-        return;
-      }
-
-      // here we should identify if we can perform sphere manipulation
-      // for these stack of images, if the metadata is not present
-      // to create a volume or if there are inconsistencies between
-      // the image metadata we should not allow the sphere manipulation
-      // and should throw an error or maybe simply just allow circle manipulation
-      // and not sphere manipulation
-      if (this.configuration.activeStrategy.includes('SPHERE')) {
-        throw new Error(
-          'Sphere manipulation is not supported for stacks of image segmentations yet'
-        );
-        // Todo: add sphere (volumetric) manipulation support for stacks of images
-        // we should basically check if the stack constructs a valid volume
-        // meaning all the metadata is present and consistent
-        // then we use a VoxelManager mapping to map a volume like appearance
-        // for the stack data.
-        // csUtils.isValidVolume(referencedImageIds
-      }
-
-      return {
-        imageIdReferenceMap,
-        segmentsLocked,
-        segmentationRepresentationUID,
-      };
-    }
-  }
-
   preMouseDownCallback = (
     evt: EventTypes.MouseDownActivateEventType
   ): boolean => {
     const eventData = evt.detail;
-    const { element } = eventData;
+    const { element, currentPoints } = eventData;
     const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
+    // @ts-expect-error
     this._editData = this.createEditData(element);
     this._activateDraw(element);
 
@@ -300,17 +200,28 @@ class BrushTool extends BaseTool {
     // This might be a mouse down
     this._previewData.isDrag = false;
     this._previewData.timerStart = Date.now();
+    const canvasPoint = vec2.clone(currentPoints.canvas) as Types.Point2;
+    const worldPoint = viewport.canvasToWorld([
+      canvasPoint[0],
+      canvasPoint[1],
+    ]) as Types.Point3;
+    this._lastDragInfo = {
+      canvas: canvasPoint,
+      world: vec3.clone(worldPoint) as Types.Point3,
+    };
 
     const hoverData = this._hoverData || this.createHoverData(element);
 
-    triggerAnnotationRenderForViewportUIDs(
-      renderingEngine,
-      hoverData.viewportIdsToRender
-    );
+    triggerAnnotationRenderForViewportUIDs(hoverData.viewportIdsToRender);
+
+    const operationData = this.getOperationData(element);
+    if (!operationData) {
+      return false;
+    }
 
     this.applyActiveStrategyCallback(
       enabledElement,
-      this.getOperationData(element),
+      operationData,
       StrategyCallbacks.OnInteractionStart
     );
 
@@ -337,6 +248,9 @@ class BrushTool extends BaseTool {
    * The preview also needs to be cancelled on changing tools.
    */
   mouseMoveCallback = (evt: EventTypes.InteractionEventType): void => {
+    if (!this.isPrimary) {
+      return;
+    }
     if (this.mode === ToolModes.Active) {
       this.updateCursor(evt);
       if (!this.configuration.preview.enabled) {
@@ -347,8 +261,12 @@ class BrushTool extends BaseTool {
       const { currentPoints, element } = evt.detail;
       const { canvas } = currentPoints;
 
-      const { preview, startPoint, timer, timerStart, isDrag } =
-        this._previewData;
+      const { startPoint, timer, timerStart, isDrag } = this._previewData;
+
+      if (isDrag) {
+        return;
+      }
+
       const delta = vec2.distance(canvas, startPoint);
       const time = Date.now() - timerStart;
       if (
@@ -359,7 +277,7 @@ class BrushTool extends BaseTool {
           window.clearTimeout(timer);
           this._previewData.timer = null;
         }
-        if (preview && !isDrag) {
+        if (!isDrag) {
           this.rejectPreview(element);
         }
       }
@@ -376,87 +294,51 @@ class BrushTool extends BaseTool {
   };
 
   previewCallback = () => {
-    if (this._previewData.preview) {
+    // Don't run the preview callback if we're currently dragging
+    if (this._previewData.isDrag) {
+      this._previewData.timer = null;
       return;
     }
+
     this._previewData.timer = null;
+
+    // get strategy data
+    const operationData = this.getOperationData(this._previewData.element) as
+      | LabelmapToolOperationDataStack
+      | LabelmapToolOperationDataVolume;
+    const enabledElement = getEnabledElement(this._previewData.element);
+    if (!enabledElement) {
+      return;
+    }
+
+    const { viewport } = enabledElement;
+    // active strategy
+    const activeStrategy = this.configuration.activeStrategy;
+    const strategyData = getStrategyData({
+      operationData,
+      viewport,
+      strategy: activeStrategy,
+    });
+
+    if (!operationData) {
+      return;
+    }
+
+    const memo = this.createMemo(
+      operationData.segmentationId,
+      strategyData.segmentationVoxelManager
+    );
+
     this._previewData.preview = this.applyActiveStrategyCallback(
       getEnabledElement(this._previewData.element),
-      this.getOperationData(this._previewData.element),
+      {
+        ...operationData,
+        ...strategyData,
+        memo,
+      },
       StrategyCallbacks.Preview
     );
   };
-
-  private createHoverData(element, centerCanvas?) {
-    const enabledElement = getEnabledElement(element);
-    const { viewport } = enabledElement;
-
-    const camera = viewport.getCamera();
-    const { viewPlaneNormal, viewUp } = camera;
-
-    const viewportIdsToRender = [viewport.id];
-
-    const {
-      segmentIndex,
-      segmentationId,
-      segmentationRepresentationUID,
-      segmentColor,
-    } = this.getActiveSegmentationData() || {};
-
-    // Center of circle in canvas Coordinates
-    const brushCursor = {
-      metadata: {
-        viewPlaneNormal: <Types.Point3>[...viewPlaneNormal],
-        viewUp: <Types.Point3>[...viewUp],
-        FrameOfReferenceUID: viewport.getFrameOfReferenceUID(),
-        referencedImageId: '',
-        toolName: this.getToolName(),
-        segmentColor,
-      },
-      data: {},
-    };
-
-    return {
-      brushCursor,
-      centerCanvas,
-      segmentIndex,
-      segmentationId,
-      segmentationRepresentationUID,
-      segmentColor,
-      viewportIdsToRender,
-    };
-  }
-
-  private getActiveSegmentationData() {
-    const toolGroupId = this.toolGroupId;
-
-    const activeSegmentationRepresentation =
-      activeSegmentation.getActiveSegmentationRepresentation(toolGroupId);
-    if (!activeSegmentationRepresentation) {
-      console.warn(
-        'No active segmentation detected, create one before using the brush tool'
-      );
-      return;
-    }
-
-    const { segmentationRepresentationUID, segmentationId } =
-      activeSegmentationRepresentation;
-    const segmentIndex =
-      segmentIndexController.getActiveSegmentIndex(segmentationId);
-
-    const segmentColor = segmentationConfig.color.getColorForSegmentIndex(
-      toolGroupId,
-      segmentationRepresentationUID,
-      segmentIndex
-    );
-
-    return {
-      segmentIndex,
-      segmentationId,
-      segmentationRepresentationUID,
-      segmentColor,
-    };
-  }
 
   /**
    * Updates the cursor position and whether it is showing or not.
@@ -475,26 +357,21 @@ class BrushTool extends BaseTool {
       return;
     }
 
-    triggerAnnotationRenderForViewportUIDs(
-      getEnabledElement(element).renderingEngine,
-      this._hoverData.viewportIdsToRender
-    );
+    BrushTool.activeCursorTool = this;
+    triggerAnnotationRenderForViewportUIDs(this._hoverData.viewportIdsToRender);
   }
 
   private _dragCallback = (evt: EventTypes.InteractionEventType): void => {
     const eventData = evt.detail;
     const { element, currentPoints } = eventData;
     const enabledElement = getEnabledElement(element);
-    const { renderingEngine } = enabledElement;
+    const { viewport } = enabledElement;
 
     this.updateCursor(evt);
 
     const { viewportIdsToRender } = this._hoverData;
 
-    triggerAnnotationRenderForViewportUIDs(
-      renderingEngine,
-      viewportIdsToRender
-    );
+    triggerAnnotationRenderForViewportUIDs(viewportIdsToRender);
 
     const delta = vec2.distance(
       currentPoints.canvas,
@@ -503,7 +380,6 @@ class BrushTool extends BaseTool {
     const { dragTimeMs, dragMoveDistance } = this.configuration.preview;
     if (
       !this._previewData.isDrag &&
-      this._previewData.preview &&
       Date.now() - this._previewData.timerStart < dragTimeMs &&
       delta < dragMoveDistance
     ) {
@@ -512,121 +388,71 @@ class BrushTool extends BaseTool {
       return;
     }
 
+    // Clear any pending preview timer when dragging starts
+    if (this._previewData.timer) {
+      window.clearTimeout(this._previewData.timer);
+      this._previewData.timer = null;
+    }
+    if (!this._lastDragInfo) {
+      const startCanvas = this._previewData.startPoint;
+      const startWorld = viewport.canvasToWorld([
+        startCanvas[0],
+        startCanvas[1],
+      ]) as Types.Point3;
+      this._lastDragInfo = {
+        canvas: vec2.clone(startCanvas) as Types.Point2,
+        world: vec3.clone(startWorld) as Types.Point3,
+      };
+    }
+
+    const currentCanvas = currentPoints.canvas;
+    const currentWorld = viewport.canvasToWorld([
+      currentCanvas[0],
+      currentCanvas[1],
+    ]) as Types.Point3;
+
+    this._hoverData = this.createHoverData(element, currentCanvas);
+
+    this._calculateCursor(element, currentCanvas);
+
+    const operationData = this.getOperationData(element);
+    if (!operationData) {
+      return;
+    }
+    // Hand the strategy the exact stroke segment we just traversed so it can
+    // paint a continuous capsule in one pass instead of trying to infer the
+    // path from scattered samples.
+    operationData.strokePointsWorld = [
+      vec3.clone(this._lastDragInfo.world) as Types.Point3,
+      vec3.clone(currentWorld) as Types.Point3,
+    ];
+
     this._previewData.preview = this.applyActiveStrategy(
       enabledElement,
-      this.getOperationData(element)
+      operationData
     );
+
+    const currentCanvasClone = vec2.clone(currentCanvas) as Types.Point2;
+    this._lastDragInfo = {
+      canvas: currentCanvasClone,
+      world: vec3.clone(currentWorld) as Types.Point3,
+    };
     this._previewData.element = element;
     // Add a bit of time to the timer start so small accidental movements dont
     // cause issues on clicking
     this._previewData.timerStart = Date.now() + dragTimeMs;
     this._previewData.isDrag = true;
-    this._previewData.startPoint = currentPoints.canvas;
+    this._previewData.startPoint = currentCanvasClone;
   };
-
-  protected getOperationData(element?) {
-    const editData = this._editData || this.createEditData(element);
-
-    const {
-      segmentIndex,
-      segmentationId,
-      segmentationRepresentationUID,
-      brushCursor,
-    } = this._hoverData || this.createHoverData(element);
-    const { data, metadata = {} } = brushCursor || {};
-    const { viewPlaneNormal, viewUp } = metadata;
-    const operationData = {
-      ...editData,
-      points: data?.handles?.points,
-      segmentIndex,
-      previewColors: this.configuration.preview.enabled
-        ? this.configuration.preview.previewColors
-        : null,
-      viewPlaneNormal,
-      toolGroupId: this.toolGroupId,
-      segmentationId,
-      segmentationRepresentationUID,
-      viewUp,
-      strategySpecificConfiguration:
-        this.configuration.strategySpecificConfiguration,
-      // Provide the preview information so that data can be used directly
-      preview: this._previewData?.preview,
-    };
-    return operationData;
-  }
 
   private _calculateCursor(element, centerCanvas) {
     const enabledElement = getEnabledElement(element);
-    const { viewport } = enabledElement;
-    const { canvasToWorld } = viewport;
-    const camera = viewport.getCamera();
-    const { brushSize } = this.configuration;
 
-    const viewUp = vec3.fromValues(
-      camera.viewUp[0],
-      camera.viewUp[1],
-      camera.viewUp[2]
+    this.applyActiveStrategyCallback(
+      enabledElement,
+      this.getOperationData(element),
+      StrategyCallbacks.CalculateCursorGeometry
     );
-    const viewPlaneNormal = vec3.fromValues(
-      camera.viewPlaneNormal[0],
-      camera.viewPlaneNormal[1],
-      camera.viewPlaneNormal[2]
-    );
-    const viewRight = vec3.create();
-
-    vec3.cross(viewRight, viewUp, viewPlaneNormal);
-
-    // in the world coordinate system, the brushSize is the radius of the circle
-    // in mm
-    const centerCursorInWorld: Types.Point3 = canvasToWorld([
-      centerCanvas[0],
-      centerCanvas[1],
-    ]);
-
-    const bottomCursorInWorld = vec3.create();
-    const topCursorInWorld = vec3.create();
-    const leftCursorInWorld = vec3.create();
-    const rightCursorInWorld = vec3.create();
-
-    // Calculate the bottom and top points of the circle in world coordinates
-    for (let i = 0; i <= 2; i++) {
-      bottomCursorInWorld[i] = centerCursorInWorld[i] - viewUp[i] * brushSize;
-      topCursorInWorld[i] = centerCursorInWorld[i] + viewUp[i] * brushSize;
-      leftCursorInWorld[i] = centerCursorInWorld[i] - viewRight[i] * brushSize;
-      rightCursorInWorld[i] = centerCursorInWorld[i] + viewRight[i] * brushSize;
-    }
-
-    if (!this._hoverData) {
-      return;
-    }
-
-    const { brushCursor } = this._hoverData;
-    const { data } = brushCursor;
-
-    if (data.handles === undefined) {
-      data.handles = {};
-    }
-
-    data.handles.points = [
-      bottomCursorInWorld,
-      topCursorInWorld,
-      leftCursorInWorld,
-      rightCursorInWorld,
-    ];
-
-    const activeStrategy = this.configuration.activeStrategy;
-    const strategy = this.configuration.strategies[activeStrategy];
-
-    // Note: i don't think this is the best way to implement this
-    // but don't think we have a better way to do it for now
-    if (typeof strategy.computeInnerCircleRadius === 'function') {
-      strategy.computeInnerCircleRadius({
-        configuration: this.configuration,
-        viewport,
-      });
-    }
-
-    data.invalidated = false;
   }
 
   /**
@@ -640,11 +466,16 @@ class BrushTool extends BaseTool {
     const enabledElement = getEnabledElement(element);
 
     const operationData = this.getOperationData(element);
+    if (!operationData) {
+      return;
+    }
     // Don't re-fill when the preview is showing and the user clicks again
     // otherwise the new area of hover may get filled, which is unexpected
     if (!this._previewData.preview && !this._previewData.isDrag) {
       this.applyActiveStrategy(enabledElement, operationData);
     }
+
+    this.doneEditMemo();
 
     this._deactivateDraw(element);
 
@@ -653,6 +484,8 @@ class BrushTool extends BaseTool {
     this.updateCursor(evt);
 
     this._editData = null;
+
+    this._lastDragInfo = null;
 
     this.applyActiveStrategyCallback(
       enabledElement,
@@ -665,19 +498,41 @@ class BrushTool extends BaseTool {
     }
   };
 
+  public getStatistics(element, segmentIndices?) {
+    if (!element) {
+      return;
+    }
+    const enabledElement = getEnabledElement(element);
+    const stats = this.applyActiveStrategyCallback(
+      enabledElement,
+      this.getOperationData(element),
+      StrategyCallbacks.GetStatistics,
+      segmentIndices
+    );
+
+    return stats;
+  }
+
   /**
    * Cancels any preview view being shown, resetting any segments being shown.
    */
   public rejectPreview(element = this._previewData.element) {
-    if (!element || !this._previewData.preview) {
+    if (!element) {
       return;
     }
+
+    this.doneEditMemo();
+
     const enabledElement = getEnabledElement(element);
+    if (!enabledElement) {
+      return;
+    }
     this.applyActiveStrategyCallback(
       enabledElement,
       this.getOperationData(element),
       StrategyCallbacks.RejectPreview
     );
+
     this._previewData.preview = null;
     this._previewData.isDrag = false;
   }
@@ -689,15 +544,27 @@ class BrushTool extends BaseTool {
     if (!element) {
       return;
     }
+
+    // Call parent method to handle memo tracking
+    super.acceptPreview(element);
+  }
+
+  /**
+   * Performs interpolation on the active segment index
+   */
+  public interpolate(element, config) {
+    if (!element) {
+      return;
+    }
     const enabledElement = getEnabledElement(element);
 
-    this.applyActiveStrategyCallback(
+    this._previewData.preview = this.applyActiveStrategyCallback(
       enabledElement,
       this.getOperationData(element),
-      StrategyCallbacks.AcceptPreview
+      StrategyCallbacks.Interpolate,
+      config.configuration
     );
-    this._previewData.isDrag = false;
-    this._previewData.preview = null;
+    this._previewData.isDrag = true;
   }
 
   /**
@@ -741,12 +608,13 @@ class BrushTool extends BaseTool {
       return;
     }
     const { data } = this._hoverData.brushCursor;
+    const { viewport } = this._hoverData;
 
     data.invalidated = true;
 
     // Todo: figure out if other brush metadata (other than segment color) should get updated
     // during the brush cursor invalidation
-    const { segmentColor } = this.getActiveSegmentationData() || {};
+    const { segmentColor } = this.getActiveSegmentationData(viewport) || {};
     this._hoverData.brushCursor.metadata.segmentColor = segmentColor;
   }
 
@@ -754,7 +622,7 @@ class BrushTool extends BaseTool {
     enabledElement: Types.IEnabledElement,
     svgDrawingHelper: SVGDrawingHelper
   ): void {
-    if (!this._hoverData) {
+    if (!this._hoverData || BrushTool.activeCursorTool !== this) {
       return;
     }
 
@@ -777,66 +645,12 @@ class BrushTool extends BaseTool {
       this._calculateCursor(element, centerCanvas);
     }
 
-    const toolMetadata = brushCursor.metadata;
-    if (!toolMetadata) {
-      return;
-    }
-
-    const annotationUID = toolMetadata.brushCursorUID;
-
-    const data = brushCursor.data;
-    const { points } = data.handles;
-    const canvasCoordinates = points.map((p) => viewport.worldToCanvas(p));
-
-    const bottom = canvasCoordinates[0];
-    const top = canvasCoordinates[1];
-
-    const center = [
-      Math.floor((bottom[0] + top[0]) / 2),
-      Math.floor((bottom[1] + top[1]) / 2),
-    ];
-
-    const radius = Math.abs(bottom[1] - Math.floor((bottom[1] + top[1]) / 2));
-
-    const color = `rgb(${toolMetadata.segmentColor?.slice(0, 3) || [0, 0, 0]})`;
-
-    // If rendering engine has been destroyed while rendering
-    if (!viewport.getRenderingEngine()) {
-      console.warn('Rendering Engine has been destroyed');
-      return;
-    }
-
-    const circleUID = '0';
-    drawCircleSvg(
-      svgDrawingHelper,
-      annotationUID,
-      circleUID,
-      center as Types.Point2,
-      radius,
-      {
-        color,
-      }
+    this.applyActiveStrategyCallback(
+      enabledElement,
+      this.getOperationData(viewport.element),
+      StrategyCallbacks.RenderCursor,
+      svgDrawingHelper
     );
-
-    const activeStrategy = this.configuration.activeStrategy;
-    const { dynamicRadiusInCanvas } = this.configuration
-      .strategySpecificConfiguration[activeStrategy] || {
-      dynamicRadiusInCanvas: 0,
-    };
-
-    if (dynamicRadiusInCanvas) {
-      const circleUID1 = '1';
-      drawCircleSvg(
-        svgDrawingHelper,
-        annotationUID,
-        circleUID1,
-        center as Types.Point2,
-        dynamicRadiusInCanvas,
-        {
-          color,
-        }
-      );
-    }
   }
 }
 

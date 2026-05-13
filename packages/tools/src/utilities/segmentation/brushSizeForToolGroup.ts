@@ -1,8 +1,7 @@
 import { getToolGroup } from '../../store/ToolGroupManager';
-import BrushTool from '../../tools/segmentation/BrushTool';
+import type BrushTool from '../../tools/segmentation/BrushTool';
 import triggerAnnotationRenderForViewportIds from '../triggerAnnotationRenderForViewportIds';
-import { getRenderingEngine } from '@cornerstonejs/core';
-import { getBrushToolInstances } from './utilities';
+import { getBrushToolInstances } from './getBrushToolInstances';
 
 /**
  * Sets the brush size for all brush-based tools in a given tool group.
@@ -25,32 +24,22 @@ export function setBrushSizeForToolGroup(
   const brushBasedToolInstances = getBrushToolInstances(toolGroupId, toolName);
 
   brushBasedToolInstances.forEach((tool: BrushTool) => {
-    tool.configuration.brushSize = brushSize;
+    const minRadius = tool.configuration.minRadius;
+    const maxRadius = tool.configuration.maxRadius;
+
+    let newBrushSize = minRadius ? Math.max(brushSize, minRadius) : brushSize;
+    newBrushSize = maxRadius ? Math.min(newBrushSize, maxRadius) : newBrushSize;
+
+    tool.configuration.brushSize = newBrushSize;
 
     // Invalidate the brush being rendered so it can update.
     tool.invalidateBrushCursor();
   });
 
   // Trigger an annotation render for any viewports on the toolgroup
-  const viewportsInfo = toolGroup.getViewportsInfo();
-
-  const viewportsInfoArray = Object.keys(viewportsInfo).map(
-    (key) => viewportsInfo[key]
-  );
-
-  if (!viewportsInfoArray.length) {
-    return;
-  }
-
-  const { renderingEngineId } = viewportsInfoArray[0];
-
-  // Use helper to get array of viewportIds, or we just end up doing this mapping
-  // ourselves here.
   const viewportIds = toolGroup.getViewportIds();
 
-  const renderingEngine = getRenderingEngine(renderingEngineId);
-
-  triggerAnnotationRenderForViewportIds(renderingEngine, viewportIds);
+  triggerAnnotationRenderForViewportIds(viewportIds);
 }
 
 /**
@@ -63,7 +52,7 @@ export function setBrushSizeForToolGroup(
 export function getBrushSizeForToolGroup(
   toolGroupId: string,
   toolName?: string
-): void {
+): number {
   const toolGroup = getToolGroup(toolGroupId);
 
   if (toolGroup === undefined) {

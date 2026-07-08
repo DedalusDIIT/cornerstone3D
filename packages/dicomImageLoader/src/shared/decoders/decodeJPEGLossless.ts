@@ -38,6 +38,34 @@ async function decodeJPEGLossless(
     throw new Error('No JPEG Lossless decoder loaded');
   }
 
+  // Check for JPEG SOI marker (0xFFD8) - if missing, the pixel data is
+  // uncompressed despite the transfer syntax claiming JPEG Lossless.
+  // This handles malformed DICOM files from systems that write raw pixel
+  // data but incorrectly set a compressed transfer syntax.
+  const firstTwoBytes = (pixelData[0] << 8) | pixelData[1];
+  if (firstTwoBytes !== 0xffd8) {
+    console.warn(
+      'JPEG Lossless transfer syntax specified but pixel data is not ' +
+        'JPEG encoded (missing SOI marker). Treating as uncompressed.'
+    );
+    const rawBuffer = pixelData.buffer.slice(
+      pixelData.byteOffset,
+      pixelData.byteOffset + pixelData.length
+    );
+
+    if (imageFrame.pixelRepresentation === 0) {
+      if (imageFrame.bitsAllocated === 16) {
+        imageFrame.pixelData = new Uint16Array(rawBuffer);
+      } else {
+        imageFrame.pixelData = new Uint8Array(rawBuffer);
+      }
+    } else {
+      imageFrame.pixelData = new Int16Array(rawBuffer);
+    }
+
+    return imageFrame;
+  }
+
   const byteOutput = imageFrame.bitsAllocated <= 8 ? 1 : 2;
   // console.time('jpeglossless');
   const buffer = pixelData.buffer;
